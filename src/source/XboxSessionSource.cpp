@@ -71,16 +71,6 @@ pipeline::ColorDescription fallbackColor() {
     return c;
 }
 
-AVFrame* allocNv12(unsigned width, unsigned height) {
-    AVFrame* frame = av_frame_alloc();
-    if (!frame) return nullptr;
-    frame->format = AV_PIX_FMT_NV12;
-    frame->width = int(width);
-    frame->height = int(height);
-    if (av_frame_get_buffer(frame, 32) < 0) { av_frame_free(&frame); return nullptr; }
-    return frame;
-}
-
 double movingAverage(double current, double sample) { return current > 0 ? current * 0.95 + sample * 0.05 : sample; }
 
 // True when the access unit carries an IDR slice or a sequence parameter set (a point to start decoding).
@@ -139,8 +129,6 @@ struct XboxSessionSource::Impl {
     CaptureCompressedDecoder decoder;
     bool decoderOpen = false;
     std::atomic<bool> hardwareDecodeStatus{false}; // stats never inspect the worker-owned decoder
-    AVFrame* dummyTarget = nullptr;
-    unsigned width = 1920, height = 1080;
     Clock::time_point lastKeyframeRequest{};
 
     struct Meta { int64_t pts,arrival; uint32_t rtp=0; int64_t submitted=0,decoded=0; };
@@ -177,7 +165,6 @@ struct XboxSessionSource::Impl {
     mutable double receivedFps = 0, decodedFps = 0, videoMbps = 0;
 
     ~Impl() {
-        if (dummyTarget) av_frame_free(&dummyTarget);
         if (opus) opus_decoder_destroy(opus);
     }
 };
@@ -244,7 +231,11 @@ void XboxSessionSource::run(XboxConnectDesc desc) {
         log::info("xbox", "streaming region " + access.regionName + " host " + access.host);
 
         setState(XboxStats::State::Starting, L"正在唤醒主机并准备串流…");
-        p.sessionId = p.api->play(p.desc.serverId, p.desc.locale);
+        const auto [requestWidth, requestHeight] = xbox::streamExtent(p.desc.resolution);
+        log::info("xbox", std::format("requested={} softwareDecode={}",
+            p.desc.resolution == xbox::StreamResolution::Auto ? std::string("auto") : std::format("{}x{}", requestWidth, requestHeight),
+            p.desc.softwareDecode));
+        p.sessionId = p.api->play(p.desc.serverId, p.desc.locale, p.desc.resolution);
         log::info("xbox", "session " + p.sessionId);
         bool connectSent = false;
         const auto deadline = Clock::now() + std::chrono::seconds(120);
@@ -311,10 +302,8 @@ void XboxSessionSource::run(XboxConnectDesc desc) {
             q.rumbling = q.feedback.left || q.feedback.right;
             q.rumbleUntil = Clock::now() + std::chrono::milliseconds(v.durationMs ? v.durationMs : 1000);
         };
-        callbacks.serverVideoSize = [this](uint32_t w, uint32_t h) {
-            std::lock_guard lock(mutex_);
-            stats_.width = w;
-            stats_.height = h;
+        callbacks.serverVideoSize = [](uint32_t w, uint32_t h) {
+            log::info("xbox", std::format("console metadata={}x{}", w, h));
         };
         callbacks.ended = [this](const std::string& reason) {
             auto& q = *p_;
@@ -346,7 +335,7 @@ void XboxSessionSource::run(XboxConnectDesc desc) {
 
         ApiSignaling signaling(*p.api, p.sessionId);
         std::string error;
-        if (!p.rtc.start(signaling, &error)) {
+        if (!p.rtc.start(signaling, &error, std::chrono::seconds(20), p.desc.resolution)) {
             // SDP/service failures happen before an ICE/UDP connection is attempted.
             // Keep the actual stage instead of diagnosing every failure as a firewall.
             fail(L"Xbox 连接失败：" + widen(error));
@@ -400,8 +389,8 @@ void XboxSessionSource::run(XboxConnectDesc desc) {
             publishedInfo_.nominalRateDen = 1;
             publishedInfo_.timestampQuantum = 1.0 / 60.0;
             publishedInfo_.duration = pipeline::Rational::unknown();
-            publishedInfo_.width = p.width;
-            publishedInfo_.height = p.height;
+            publishedInfo_.width = stats_.width ? stats_.width : requestWidth;
+            publishedInfo_.height = stats_.height ? stats_.height : requestHeight;
             publishedInfo_.displayAspect = 16.0 / 9.0;
             publishedInfo_.videoCodecName = "H.264";
             publishedInfo_.color = fallbackColor();
@@ -462,6 +451,7 @@ void XboxSessionSource::decodeLoop() {
         p.rtc.requestKeyframe();
     };
     log::info("xbox", "decode thread started");
+    auto [width, height] = xbox::streamExtent(p.desc.resolution);
     for (;;) {
         Impl::Unit unit;
         {
@@ -485,7 +475,7 @@ void XboxSessionSource::decodeLoop() {
         if (!seenKeyframe && !startsDecoding(unit.data)) { ++p.dropped; requestKeyframe(); continue; }
         if (!p.decoderOpen) {
             p.decoder.setStreamProfile(true);
-            if (!p.decoder.open(CaptureCodec::H264, p.width, p.height, nullptr, 0,
+            if (!p.decoder.open(CaptureCodec::H264, width, height, nullptr, 0,
                                 forceSoftware ? nullptr : p.desc.decodeDevice.get(),
                                 forceSoftware ? nullptr : p.desc.decodeQueue.get())) {
                 log::error("xbox", "no usable H.264 decoder");
@@ -495,7 +485,6 @@ void XboxSessionSource::decodeLoop() {
             }
             p.decoderOpen = true;
             p.hardwareDecodeStatus.store(p.decoder.hardwareActive(), std::memory_order_relaxed);
-            if (!p.dummyTarget) p.dummyTarget = allocNv12(16, 16);
             log::info("xbox", std::string("decoder ") + p.decoder.backendName());
         }
         // 90 kHz RTP timestamps, unwrapped, to 100 ns ticks.
@@ -509,15 +498,12 @@ void XboxSessionSource::decodeLoop() {
         if (metas.size() > 64) metas.pop_front();
 
         const auto begin = Clock::now();
-        const bool needsTarget = p.decoder.framesDecoded() == 0 || !p.decoder.hardwareActive();
-        AVFrame* target = needsTarget ? allocNv12(p.width, p.height) : p.dummyTarget;
         AVFrame* out = nullptr;
         bool hardware = false;
-        const bool produced = target && p.decoder.decode(unit.data.data(), unit.data.size(), pts, target, &out, hardware);
+        const bool produced = p.decoder.decode(unit.data.data(), unit.data.size(), pts, nullptr, &out, hardware);
         p.hardwareDecodeStatus.store(p.decoder.hardwareActive(), std::memory_order_relaxed);
         const double decodeMs = std::chrono::duration<double, std::milli>(Clock::now() - begin).count();
         if (!produced) {
-            if (needsTarget && target) av_frame_free(&target);
             if (!p.decoder.waitingForInput()) {
                 ++p.errors;
                 seenKeyframe = false;
@@ -548,20 +534,12 @@ void XboxSessionSource::decodeLoop() {
             continue;
         }
         std::shared_ptr<AVFrame> frame;
-        if (hardware) {
-            AVFrame* cloned = av_frame_clone(out);
-            if (cloned) frame.reset(cloned, [](AVFrame* f) { av_frame_free(&f); });
-            if (needsTarget && target) av_frame_free(&target);
-        } else {
-            frame.reset(target, [](AVFrame* f) { av_frame_free(&f); });
-        }
+        if (AVFrame* cloned = av_frame_clone(out)) frame.reset(cloned, [](AVFrame* f) { av_frame_free(&f); });
         if (!frame) { ++p.errors; continue; }
         recovery.picture();
         seenKeyframe = true;
-        if (unsigned(frame->width) != p.width || unsigned(frame->height) != p.height) {
-            p.width = unsigned(frame->width);
-            p.height = unsigned(frame->height);
-        }
+        width = unsigned(frame->width);
+        height = unsigned(frame->height);
 
         Impl::Meta frameMeta{pts,unit.arrival,unit.rtp,host100ns(),host100ns()};
         int64_t arrival = unit.arrival;
@@ -590,8 +568,11 @@ void XboxSessionSource::decodeLoop() {
         {
             std::lock_guard lock(mutex_);
             info = info_;
-            stats_.width = unsigned(frame->width);
-            stats_.height = unsigned(frame->height);
+            if (stats_.width != width || stats_.height != height) {
+                log::info("xbox", std::format("decoded={}x{} hardware={}", width, height, hardware));
+                stats_.width = width;
+                stats_.height = height;
+            }
         }
         info.color = packet.colorInfo;
         info.hardwareDecodeActive = frame->format == AV_PIX_FMT_D3D12;

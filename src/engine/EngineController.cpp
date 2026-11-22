@@ -468,6 +468,7 @@ PlayerSnapshot EngineController::snapshot()const{
     }
 #endif
 #ifdef VEYRA_ENABLE_XBOX
+    if(copy.transport==TransportState::Empty)copy.xboxActive=false;
     if(copy.xboxActive&&activeXbox){
         copy.xbox=activeXbox->stats();
         copy.captureAudio=activeXbox->audioState();copy.audioAvailable=copy.captureAudio.available;

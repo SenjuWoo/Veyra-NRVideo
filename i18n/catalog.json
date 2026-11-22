@@ -35116,6 +35116,18 @@
    "ru": "График программного обеспечения: лучшая совместимость, отсутствие видеопамяти, отсутствие конкуренции с видео для GPU; некоторые тени и размытия упрощены."
   },
   {
+   "zh": "串流分辨率",
+   "src": "qml/XboxSourceDialog.qml",
+   "zh-TW": "串流解析度",
+   "en": "Stream resolution"
+  },
+  {
+   "zh": "重新连接后生效。1440p 需要 Xbox Series X|S、支持的系统版本，以及 1440p 或 4K 主机显示设置。实际分辨率请查看串流统计。",
+   "src": "qml/XboxSourceDialog.qml",
+   "zh-TW": "重新連線後生效。1440p 需要 Xbox Series X|S、支援的系統版本，以及 1440p 或 4K 主機顯示設定。實際解析度請查看串流統計。",
+   "en": "Reconnect to apply. 1440p requires an Xbox Series X|S with supported firmware and its display set to 1440p or 4K. Stream statistics show the decoded resolution."
+  },
+  {
    "zh": "软件视频解码",
    "src": "qml/XboxSourceDialog.qml",
    "zh-TW": "軟體視訊解碼",

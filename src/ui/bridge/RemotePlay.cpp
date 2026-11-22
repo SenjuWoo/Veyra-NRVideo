@@ -102,7 +102,6 @@ void QmlPlayerBridge::setupXbox() {
             k.engine.openXbox(k.videoWindow, std::move(*request), k.options);
             k.openingSessionId = k.engine.snapshot().sessionId;
             refreshSubtitles({});
-#ifdef VEYRA_ENABLE_REMOTEPLAY
             // The pad is polled on the UI thread at 250 Hz; the session sends changes and a 33 ms heartbeat.
             if (pad) {
                 if (!k.acquirePad(Impl::PadXbox)) veyra::log::warn("xbox-input", "SDL gamepad initialization failed");
@@ -122,9 +121,6 @@ void QmlPlayerBridge::setupXbox() {
                 if (k.xboxTimer) k.xboxTimer->stop();
                 k.releasePad(Impl::PadXbox);
             }
-#else
-            (void)pad;
-#endif
         });
         rememberSource(QStringLiteral("xbox"), label);
         return true;

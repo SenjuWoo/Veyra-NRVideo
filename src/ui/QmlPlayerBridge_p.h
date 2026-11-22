@@ -81,7 +81,7 @@
 #include "veyra/source/CaptureFrameRate.h"
 #include "veyra/source/MagewellCapture.h"
 #include "CapturePreferenceStore.h"
-#ifdef VEYRA_ENABLE_REMOTEPLAY
+#if defined(VEYRA_ENABLE_REMOTEPLAY) || defined(VEYRA_ENABLE_XBOX)
 // SDL3-static's system libraries (see CMakeLists: kept off the link line).
 #pragma comment(lib, "winmm.lib")
 #pragma comment(lib, "imm32.lib")
@@ -89,6 +89,8 @@
 #pragma comment(lib, "setupapi.lib")
 #pragma comment(lib, "dinput8.lib")
 #include "veyra/remoteplay/ControllerInput.h"
+#endif
+#ifdef VEYRA_ENABLE_REMOTEPLAY
 #include "veyra/remoteplay/Discovery.h"
 #include "veyra/remoteplay/ProfileStore.h"
 #include "veyra/source/RemotePlaySource.h"
@@ -483,7 +485,7 @@ struct QmlPlayerBridge::Impl {
     QString ps5ControlNoticed;               // state the last notice was shown for
     int ps5ControlTicks = 0;
     bool ps5ControlNoPair = false;           // switched on without a pairing; cleared once pairings exist
-#ifdef VEYRA_ENABLE_REMOTEPLAY
+#if defined(VEYRA_ENABLE_REMOTEPLAY) || defined(VEYRA_ENABLE_XBOX)
     remoteplay::ControllerInput controller;
     // One SDL pad reader shared by PS5 stream, PS5 手柄控制, PC and Xbox streaming.
     // Each user acquires it and only the last release stops it, so the timer of a

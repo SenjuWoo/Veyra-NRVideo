@@ -55,7 +55,8 @@ public:
     // On success `*out` is a frame whose lifetime the
     // caller must not extend past the next decode():
     //  - hardware=true:  decoder-owned D3D12 surface (AV_PIX_FMT_D3D12);
-    //  - hardware=false: converted into `nv12Target` (owned by the caller).
+    //  - hardware=false: converted into `nv12Target` (owned by the caller), or
+    //    a decoder-owned NV12 frame at the decoded size when `nv12Target` is null.
     // Returns false when the payload produced no frame (pending input) or the
     // decoder reported an error; see lastError()/waitingForInput().
     bool decode(const uint8_t* data, size_t bytes, int64_t pts100ns,
