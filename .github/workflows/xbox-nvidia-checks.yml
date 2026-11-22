@@ -1,0 +1,46 @@
+name: Xbox portable patch checks
+on:
+  push:
+    branches: [release/xbox-nvidia]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  xbox-offline:
+    runs-on: windows-2025
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+      - name: Validate the Windows installer syntax
+        shell: powershell
+        run: |
+          $tokens = $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path scripts/xbox-portable/Install-VeyraXbox.ps1).Path, [ref]$tokens, [ref]$errors)
+          if ($errors) { $errors | Format-List; exit 1 }
+      - name: Run the native Xbox protocol suite
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+          $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (!$vs) { throw 'MSVC not found' }
+          $deps = Join-Path $env:RUNNER_TEMP 'veyra-vcpkg'
+          $source = (Resolve-Path tests/xbox/standalone).Path
+          $overlay = (Resolve-Path scripts/xbox/vcpkg-overlay).Path
+          $vcpkg = Join-Path $env:VCPKG_INSTALLATION_ROOT 'vcpkg.exe'
+          & $vcpkg install --triplet=x64-windows-static "--x-manifest-root=$source" "--x-install-root=$deps" "--overlay-ports=$overlay"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $build = Join-Path $env:RUNNER_TEMP 'veyra-xbox-tests'
+          $batch = Join-Path $env:RUNNER_TEMP 'veyra-xbox-test.cmd'
+          @(
+            '@echo off',
+            "call `"$vs/VC/Auxiliary/Build/vcvars64.bat`" >nul || exit /b 1",
+            "cmake -S `"$source`" -B `"$build`" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=`"$deps/x64-windows-static`" || exit /b 1",
+            "cmake --build `"$build`" --parallel 2 || exit /b 1",
+            "ctest --test-dir `"$build`" --output-on-failure"
+          ) | Set-Content -LiteralPath $batch -Encoding ascii
+          & $batch
+          exit $LASTEXITCODE
