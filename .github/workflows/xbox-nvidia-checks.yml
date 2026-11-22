@@ -1,7 +1,7 @@
 name: Xbox portable patch checks
 on:
   push:
-    branches: [release/xbox-nvidia]
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
