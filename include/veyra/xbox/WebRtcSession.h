@@ -7,6 +7,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <stop_token>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -64,10 +65,10 @@ public:
 
     // Offer, signalling, ICE; returns once connected, false (with `error`) on failure or timeout.
     bool start(Signaling& signaling, std::string* error, std::chrono::milliseconds timeout = std::chrono::seconds(20),
-        StreamResolution resolution = StreamResolution::Auto);
+        StreamResolution resolution = StreamResolution::Auto, std::stop_token stop = {});
     // True once the console acknowledged the message-channel handshake (input is accepted from then on).
     bool ready() const { return handshakeDone_.load(); }
-    bool waitReady(std::chrono::milliseconds timeout);
+    bool waitReady(std::chrono::milliseconds timeout, std::stop_token stop = {});
 
     void sendGamepad(const GamepadFrame& frame);   // sent when it changes, and at least every 33 ms by the caller
     void requestKeyframe();
@@ -99,7 +100,7 @@ private:
     std::shared_ptr<rtc::Track> audio_, video_;
     std::shared_ptr<rtc::DataChannel> chat_, control_, input_, message_;
     std::mutex mutex_;
-    std::condition_variable changed_;
+    std::condition_variable_any changed_;
     std::atomic<bool> connected_{false}, failed_{false}, closed_{false}, handshakeDone_{false}, handshakeSent_{false};
     std::atomic<uint32_t> inputSequence_{0};
     std::atomic<uint64_t> videoUnits_{0}, audioPackets_{0}, keyframeRequests_{0}, videoBytes_{0};

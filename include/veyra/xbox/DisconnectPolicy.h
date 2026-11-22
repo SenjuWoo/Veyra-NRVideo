@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 #pragma once
+#include <chrono>
 #include <string_view>
 #include <cstdint>
 
@@ -13,6 +14,11 @@ class ReconnectBudget {
 public:
     bool take() { if (attempts_ >= 3) return false; ++attempts_; return true; }
     unsigned attempts() const { return attempts_; }
+    // Give the Xbox service time to register the console again after a server kick.
+    std::chrono::seconds delay() const {
+        using namespace std::chrono_literals;
+        return attempts_ == 1 ? 2s : attempts_ == 2 ? 5s : 10s;
+    }
     // Refill only after 30 seconds of continuous decoded progress. One frame
     // after a reconnect must not enable another endless cycle of retries.
     void decoded(int64_t host100ns) {

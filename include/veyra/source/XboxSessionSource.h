@@ -5,7 +5,6 @@
 // over WebRTC (libdatachannel), decodes the video with the shared hardware decoder and plays the audio.
 // The effect chain is not part of it.
 #include <atomic>
-#include <condition_variable>
 #include <cstdint>
 #include <deque>
 #include <memory>
@@ -60,9 +59,9 @@ public:
     XboxSessionSource(const XboxSessionSource&) = delete;
     XboxSessionSource& operator=(const XboxSessionSource&) = delete;
 
-    // Starts the console session and connects. Blocks until the stream is up or failed (up to about a
-    // minute while the console wakes); false means see stats().message. cancel() aborts it from another thread.
-    bool connect(XboxConnectDesc desc);
+    // The owner thread starts the console session. While it connects, read() reports Waiting.
+    // Start a fresh source before sharing it with the UI. cancel() can be called from another thread.
+    void start(XboxConnectDesc desc);
     void cancel() { cancel_ = true; }
 
     bool open(const SourceOpenDesc&) override { return false; }
@@ -86,17 +85,15 @@ public:
 
 private:
     struct Impl;
-    void run(XboxConnectDesc desc);
+    void run(XboxConnectDesc desc, std::stop_token stop);
     void decodeLoop();
     void publish(std::shared_ptr<AVFrame> frame, const pipeline::FramePacket& packet, const SourceInfo& info);
     void setState(XboxStats::State state, std::wstring message);
 
     std::unique_ptr<Impl> p_;
     mutable std::mutex mutex_;
-    std::condition_variable ready_;
     std::atomic<bool> cancel_{false};
-    bool initialized_ = false, started_ = false;
-    SourceInfo info_, publishedInfo_;
+    SourceInfo info_;
     struct Frame { std::shared_ptr<AVFrame> frame; pipeline::FramePacket packet; SourceInfo info; };
     std::optional<Frame> latest_;
     std::shared_ptr<AVFrame> view_;

@@ -94,7 +94,7 @@ std::string WebRtcSession::describeCodecs(const std::string& sdp) {
 }
 
 bool WebRtcSession::start(Signaling& signaling, std::string* error, std::chrono::milliseconds timeout,
-                          StreamResolution resolution) {
+                          StreamResolution resolution, std::stop_token stop) {
     resolution_ = resolution;
     const auto fail = [&](const std::string& why) {
         if (error) *error = why;
@@ -190,11 +190,13 @@ bool WebRtcSession::start(Signaling& signaling, std::string* error, std::chrono:
     });
 
     // Offer: gather every local candidate first (no trickle on this service).
+    if (stop.stop_requested()) return fail("cancelled");
     pc_->setLocalDescription(rtc::Description::Type::Offer);
     {
         std::unique_lock lock(mutex_);
-        changed_.wait_for(lock, std::chrono::seconds(5), [&] { return pc_->gatheringState() == rtc::PeerConnection::GatheringState::Complete; });
+        changed_.wait_for(lock, stop, std::chrono::seconds(5), [&] { return pc_->gatheringState() == rtc::PeerConnection::GatheringState::Complete; });
     }
+    if (stop.stop_requested()) return fail("cancelled");
     const auto local = pc_->localDescription();
     if (!local) return fail("no local description");
     const std::string offer = withoutCandidates(std::string(*local));
@@ -246,14 +248,16 @@ bool WebRtcSession::start(Signaling& signaling, std::string* error, std::chrono:
     if (added == 0) return fail("the console sent no usable network candidates");
 
     std::unique_lock lock(mutex_);
-    if (!changed_.wait_for(lock, timeout, [&] { return connected_.load() || failed_.load(); }) || !connected_)
+    const bool finished = changed_.wait_for(lock, stop, timeout, [&] { return connected_.load() || failed_.load(); });
+    if (stop.stop_requested()) return fail("cancelled");
+    if (!finished || !connected_)
         return fail(failed_ ? "the connection to the console failed (network or firewall)" : "timed out connecting to the console");
     return true;
 }
 
-bool WebRtcSession::waitReady(std::chrono::milliseconds timeout) {
+bool WebRtcSession::waitReady(std::chrono::milliseconds timeout, std::stop_token stop) {
     std::unique_lock lock(mutex_);
-    return changed_.wait_for(lock, timeout, [&] { return handshakeDone_.load() || failed_.load(); }) && handshakeDone_;
+    return changed_.wait_for(lock, stop, timeout, [&] { return handshakeDone_.load() || failed_.load(); }) && handshakeDone_ && !stop.stop_requested();
 }
 
 void WebRtcSession::sendFailure(const std::exception& error) {

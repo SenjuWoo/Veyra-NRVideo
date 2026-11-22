@@ -1,8 +1,9 @@
 [CmdletBinding()]
 param(
-    [string]$Destination = (Join-Path $env:LOCALAPPDATA 'Programs/Veyra Xbox NVIDIA 2.2.1'),
+    [string]$Destination = (Join-Path $env:LOCALAPPDATA 'Programs/Veyra Xbox NVIDIA 2.2.2'),
     [string]$UpstreamZip,
-    [string]$DlssSrDll
+    [string]$DlssSrDll,
+    [switch]$Launch
 )
 
 $ErrorActionPreference = 'Stop'
@@ -37,7 +38,7 @@ function Get-VerifiedAsset([string]$Path, [string]$Url, [string]$Filename, [stri
 }
 
 foreach ($entry in $manifest.files) {
-    if ($entry.path -notmatch '^(Veyra\.exe|versions/2\.2\.1/(veyra_qml_ui\.exe|veyra_update_worker\.exe|qml/Veyra/XboxSourceDialog\.qml|shaders/[A-Za-z0-9_]+\.dxil|virtualcam/[A-Za-z0-9_.-]+\.(exe|dll)))$') {
+    if ($entry.path -notmatch '^(Veyra\.exe|versions/2\.2\.2/(veyra_qml_ui\.exe|veyra_update_worker\.exe|qml/Veyra/(XboxSourceDialog|SettingsPage)\.qml|shaders/[A-Za-z0-9_]+\.dxil|virtualcam/[A-Za-z0-9_.-]+\.(exe|dll)))$') {
         throw "Unexpected payload path: $($entry.path)"
     }
     Assert-Hash (Join-Path $payload $entry.path) $entry.sha256
@@ -59,7 +60,7 @@ try {
     & tar.exe -xf $donor -C $stage
     if ($LASTEXITCODE -ne 0) { throw 'Upstream package extraction failed.' }
     $app = Join-Path $stage 'Veyra-2.2.0-NVIDIA-win64-portable'
-    $versionRoot = Join-Path $app 'versions/2.2.1'
+    $versionRoot = Join-Path $app 'versions/2.2.2'
     $previousRoot = (Resolve-Path -LiteralPath (Join-Path $app 'versions/2.2.0')).Path
     if ([IO.Path]::GetDirectoryName($previousRoot) -ne (Join-Path $app 'versions')) {
         throw 'Unexpected upstream version path.'
@@ -73,7 +74,7 @@ try {
     $srTarget = Join-Path $versionRoot 'runtime/experimental/nvngx_dlss.dll'
     Copy-Item -LiteralPath $sr -Destination $srTarget -Force
     Assert-Hash $srTarget 'D00B5B0AB29C3CA101B70C3A5ECB3A01B7EF33766A3383A28A18623083E6123E'
-    [IO.File]::WriteAllText((Join-Path $app 'current-version.txt'), "2.2.1`n`n", [Text.Encoding]::ASCII)
+    [IO.File]::WriteAllText((Join-Path $app 'current-version.txt'), "2.2.2`n`n", [Text.Encoding]::ASCII)
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'payload.json') -Destination (Join-Path $app 'LOCAL-BUILD.json')
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'README.md') -Destination (Join-Path $app 'Xbox-NVIDIA-Guide.md')
     if (Test-Path -LiteralPath $destinationPath) { throw 'The destination appeared during setup.' }
@@ -87,4 +88,8 @@ try {
             Remove-Item -LiteralPath $resolvedStage -Recurse -Force
         }
     }
+}
+
+if ($Launch) {
+    Start-Process -FilePath (Join-Path $destinationPath 'Veyra.exe') -WorkingDirectory $destinationPath
 }

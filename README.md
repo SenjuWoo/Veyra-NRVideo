@@ -2,7 +2,7 @@
 
 An Xbox-focused fork of Veyra for Windows 11 and NVIDIA GPUs. It adds a 1440p Remote Play option, fixes Xbox session teardown and controller forwarding, and retains Veyra’s NVIDIA frame generation and video enhancement.
 
-**[Download the Xbox/NVIDIA patch](https://github.com/SenjuWoo/Veyra-NRVideo/releases)** · [Upstream pull request #274](https://github.com/Likely7/Veyra-NRVideo/pull/274)
+**[Download the latest stable Xbox/NVIDIA patch](https://github.com/SenjuWoo/Veyra-NRVideo/releases/latest)** · [Upstream pull request #274](https://github.com/Likely7/Veyra-NRVideo/pull/274)
 
 ## What this fork adds
 
@@ -12,13 +12,15 @@ An Xbox-focused fork of Veyra for Windows 11 and NVIDIA GPUs. It adds a 1440p Re
 | **Native-size software decoding** | If you switch to software decoding, Veyra preserves the decoded resolution, including 1440p. |
 | **Independent controller forwarding** | Choose whether Veyra forwards controller input separately from your decoder choice. |
 | **Fixed disconnect and reconnect** | Ending a stream clears the previous session from the Xbox dialog so you can connect again. |
+| **Responsive automatic reconnect** | Retries after recoverable network or service interruptions without blocking the playback loop. |
+| **VRAM protection** | Optional fullscreen protection follows the current Windows GPU budget and keeps the stream active when returning to a window. |
 
 The patch also updates the NVIDIA DLSS Super Resolution runtime. At native 1440p on a 1440p display, you can leave Super Resolution off. Enable frame generation for smoother motion, or leave it off when you want the shortest processing path. The console determines the stream codec and bitrate. One live Series X test delivered H.264 at 2560×1440 and about 59.5 decoded fps. Individual games can render at a lower frame rate.
 
 ## Get started
 
 1. Open [Releases](https://github.com/SenjuWoo/Veyra-NRVideo/releases), download the patch ZIP under **Assets**, and extract it.
-2. Double-click `Install.cmd`. Setup downloads and verifies the official Veyra NVIDIA package and the signed NVIDIA Super Resolution DLL, then creates a separate installation. Launch the `Veyra.exe` it prints.
+2. Double-click `Install.cmd`. Setup downloads and verifies the official Veyra NVIDIA package and the signed NVIDIA Super Resolution DLL, then creates a separate installation and opens Veyra.
 3. Enable Remote Play on your Xbox Series X|S and set its display resolution to 1440p or 4K UHD. In Veyra, open **Xbox**, select **1440p**, and connect. Press **Ctrl+Alt+Shift+S** to check the decoded resolution and bitrate. [Xbox Remote Play resolution requirements](https://news.xbox.com/en-us/2026/09/09/xbox-insiders-october-2026-console-features-3/)
 
 Start with hardware decoding. If a game renders 30 fps and the stream repeats each frame at 60 fps, choose **60→30** cadence before enabling interpolation. For a true 60 fps game, use the stream cadence.

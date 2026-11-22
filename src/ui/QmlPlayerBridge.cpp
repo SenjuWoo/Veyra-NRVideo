@@ -456,13 +456,12 @@ QmlPlayerBridge::QmlPlayerBridge(engine::EngineController& engine, std::filesyst
   // a few Win32 calls, so this is safe on the polling path.
   syncHdrDisplayProfile();
   syncHdrTitleProfile();
-        if (impl_->snapshot.vramRunawayMiB && (impl_->vramNoticeSession != impl_->snapshot.sessionId ||
+        if ((impl_->snapshot.vramRunawayMiB || impl_->snapshot.vramFullscreenUnsafe) &&
+            (impl_->vramNoticeSession != impl_->snapshot.sessionId ||
             (!wasFullscreenUnsafe && impl_->snapshot.vramFullscreenUnsafe))) {
             impl_->vramNoticeSession = impl_->snapshot.sessionId;
             if (impl_->snapshot.vramFullscreenUnsafe)
-                emit notice(tr("全屏期间显存持续增长了 %1 GB，已退出全屏保护播放；当前会话使用窗口播放。增强设置保留。"
-                               "原因尚未确认，可开启设置中的 OBS 游戏采集兼容、重启后测试全屏。")
-                                .arg(impl_->snapshot.vramRunawayMiB / 1024.0, 0, 'f', 1), true);
+                emit notice(tr("全屏显存保护已切换到窗口播放，串流和增强设置保持不变。"), true);
             else emit notice(tr("显存在设置未变时增加了 %1 GB，正在尝试回收；回收结果见诊断日志。原因尚未确认。")
                                  .arg(impl_->snapshot.vramRunawayMiB / 1024.0, 0, 'f', 1), true);
         }

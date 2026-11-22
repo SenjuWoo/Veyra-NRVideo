@@ -112,6 +112,8 @@ struct CaptureAudioSession::Impl : AudioPcmSource {
         int largeSkewDirection=0;
         int64_t nextSyncLog=0;
         int64_t nextPeakLog=0;
+        double nextClockLogMs=0;
+        unsigned clockTransitions=0;
         // Sample findings since the last report (see the report below).
         uint64_t heldPadding=0,heldNonFinite=0,heldOverRange=0;double heldPeak=0;bool sampleReported=false;
         unsigned appliedMode=mode.load();int appliedOffset=offset.load();
@@ -298,8 +300,11 @@ struct CaptureAudioSession::Impl : AudioPcmSource {
                 const bool previousFallback=syncEstimate.fallback;
                 syncEstimate=syncTarget.observe(vHost-vPts-ingress,vHost,vArrival?std::optional<double>(double(*vArrival)/10000):std::nullopt);
                 lastVideoObservation=observation;
-                if(previousFallback!=syncEstimate.fallback)
-                    log::warn("capture-audio-clock",std::format("fallback={} rawMs={:.3f} localVideoMs={:.3f} acceptedMs={:.3f} basis=matched-original-arrival hardwareOffsetUnmeasured=1",syncEstimate.fallback,syncEstimate.rawMs,syncEstimate.localMs,syncEstimate.targetMs));
+                if(previousFallback!=syncEstimate.fallback)++clockTransitions;
+                if(clockTransitions&&now>=nextClockLogMs){
+                    log::info("capture-audio-clock",std::format("fallback={} transitions={} rawMs={:.3f} localVideoMs={:.3f} acceptedMs={:.3f} basis=matched-original-arrival hardwareOffsetUnmeasured=1",syncEstimate.fallback,clockTransitions,syncEstimate.rawMs,syncEstimate.localMs,syncEstimate.targetMs));
+                    clockTransitions=0;nextClockLogMs=now+1000;
+                }
             }
             if(!fresh)syncTarget.invalidate();
             const double requested=appliedMode==0?syncEstimate.targetMs:appliedMode==1?double(appliedOffset):0;

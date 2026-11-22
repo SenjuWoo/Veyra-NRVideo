@@ -29,6 +29,7 @@
 #include "veyra/xbox/StreamApi.h"
 #include "veyra/xbox/WebRtcSession.h"
 #include "veyra/xbox/DisconnectPolicy.h"
+#include "veyra/engine/VramBudget.h"
 #include "veyra/xbox/VideoDecodeRecovery.h"
 
 using namespace veyra::xbox;
@@ -608,7 +609,25 @@ int main(int argc, char** argv) {
     check(reconnectableDisconnect("connection lost"), "transport loss is recoverable");
     check(!reconnectableDisconnect("KickForStreamingClientDisconnect") && !reconnectableDisconnect("unknown server disconnect"), "unknown kicks and takeover are not retried");
     ReconnectBudget budget;
-    check(budget.take() && budget.take() && budget.take() && !budget.take(), "retry budget stops at three");
+    check(budget.take() && budget.delay() == std::chrono::seconds(2), "first Xbox retry leaves time for service registration");
+    check(budget.take() && budget.delay() == std::chrono::seconds(5), "second Xbox retry backs off");
+    check(budget.take() && budget.delay() == std::chrono::seconds(10) && !budget.take(), "Xbox retry budget stops at three");
+    constexpr uint64_t mib = 1ull << 20;
+    using veyra::engine::vramBudgetTight;
+    using veyra::engine::vramMinimumHeadroom;
+    check(vramMinimumHeadroom(2048*mib) == 256*mib &&
+          vramMinimumHeadroom(8192*mib) == 512*mib &&
+          vramMinimumHeadroom(32768*mib) == 1024*mib, "VRAM headroom scales with the runtime budget within bounds");
+    check(!vramBudgetTight(3216*mib,15277*mib), "observed Xbox disconnect did not have VRAM pressure");
+    check(vramBudgetTight(7500*mib,7800*mib) && !vramBudgetTight(7500*mib,15000*mib), "pressure follows falling budget even at constant usage");
+    check(vramBudgetTight(8000*mib,7800*mib) && !vramBudgetTight(8000*mib,0), "over-budget usage is tight and unknown budget is ignored");
+    std::stop_source cancelled;
+    cancelled.request_stop();
+    WebRtcSession pendingSession;
+    const auto cancelStart = std::chrono::steady_clock::now();
+    check(!pendingSession.waitReady(std::chrono::seconds(10), cancelled.get_token()) &&
+          std::chrono::steady_clock::now() - cancelStart < std::chrono::seconds(1),
+          "cancelling the handshake bypasses the network timeout");
     budget.decoded(1);budget.decoded(10000001);budget.disconnected();budget.decoded(400000000);
     check(!budget.take(), "a brief return or a gap cannot refill retries");
     for(int64_t t=400000000;t<=710000000;t+=5000000)budget.decoded(t);

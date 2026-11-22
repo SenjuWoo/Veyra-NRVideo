@@ -56,6 +56,7 @@
 #include "veyra/RuntimePaths.h"
 #include "veyra/engine/GraphDescription.h"
 #include "veyra/engine/RecentGraphCache.h"
+#include "veyra/engine/VramBudget.h"
 #include "veyra/engine/PreviewGpuSession.h"
 #include "veyra/engine/EffectChain.h"
 #include "veyra/engine/PosterFrame.h"
@@ -542,7 +543,6 @@ void EngineController::run(HWND window,std::wstring path,PlayerOptions options,s
     auto xb=xboxRequest?std::make_shared<source::XboxSessionSource>():nullptr;
     xbox::ReconnectBudget xboxReconnectBudget;
     const bool isXbox=bool(xb);
-    {std::lock_guard lock(mutex_);activeXbox_=xb;}
 #else
     (void)xboxRequest;const bool isXbox=false;
 #endif
@@ -662,13 +662,15 @@ void EngineController::run(HWND window,std::wstring path,PlayerOptions options,s
                     ctx.device()->AddRef();xboxRequest->decodeDevice=std::shared_ptr<ID3D12Device>(ctx.device(),[](ID3D12Device* device){device->Release();});
                     ctx.directQueue()->AddRef();xboxRequest->decodeQueue=std::shared_ptr<ID3D12CommandQueue>(ctx.directQueue(),[](ID3D12CommandQueue* queue){queue->Release();});
                     xboxRequest->stopRequested=&stop_;
-                    if(!xb->connect(*xboxRequest)){const auto message=xb->stats().message;status(message.empty()?L"Xbox 串流连接失败，请查看诊断":message,true);break;}
-                    const auto firstFrameDeadline=Clock::now()+std::chrono::seconds(20);
+                    xb->start(*xboxRequest);
+                    {std::lock_guard lock(mutex_);activeXbox_=xb;}
+                    const auto firstFrameDeadline=Clock::now()+std::chrono::seconds(155);
                     while(!stop_){
+                        watchdog_->beat();
                         const AVFrame* first=nullptr;const auto result=xb->read(cachedPacket,&first);
                         if(result==source::SourceReadStatus::Frame){cachedFrame=av_frame_clone(first);break;}
                         if(result==source::SourceReadStatus::Error){const auto message=xb->stats().message;status(message.empty()?L"Xbox 没有返回可解码的画面，请重新连接。":message,true);break;}
-                        if(Clock::now()>firstFrameDeadline){status(L"已连接 Xbox，但 20 秒内没有收到画面。请重新连接。",true);break;}
+                        if(Clock::now()>firstFrameDeadline){status(L"等待 Xbox 启动串流或返回画面超时，请重新连接。",true);break;}
                         std::this_thread::sleep_for(std::chrono::milliseconds(2));
                     }
                     if(stop_||!cachedFrame)break;
@@ -1092,7 +1094,7 @@ void EngineController::run(HWND window,std::wstring path,PlayerOptions options,s
             // at the driver or an overlay hooked on it, the graph step at our own passes.
             uint64_t vramFloor=0,vramRevision=~0ull,vramRecoverBefore=0,vramRecoverGrowth=0;auto vramSettleUntil=Clock::now(),vramRecoverCheckAt=Clock::now();
             bool vramWarned=false;int vramRecoverStep=0,vramRecoverDone=0,vramRecoveries=0;
-            bool vramFullscreenBlocked=false;unsigned vramGrowthSamples=0;
+            bool vramFullscreenBlocked=false;unsigned vramGrowthSamples=0,vramPressureSamples=0;
             bool vramProtectionEnabled=fullscreenMemoryProtection_.load();
             // VEYRA_TEST_VRAM_LEAK_MIB=n: hold on to n MiB more of video memory every second;
             // VEYRA_TEST_VRAM_LEAK_RELEASE=1 lets the swapchain rebuild free it (as a leak tied
@@ -1101,8 +1103,10 @@ void EngineController::run(HWND window,std::wstring path,PlayerOptions options,s
             const uint64_t testLeakLimitMiB=[]{wchar_t v[16]{};return GetEnvironmentVariableW(L"VEYRA_TEST_VRAM_LEAK_LIMIT_MIB",v,16)?uint64_t(std::max(0,_wtoi(v))):0ull;}();
             const bool testLeakReleases=GetEnvironmentVariableW(L"VEYRA_TEST_VRAM_LEAK_RELEASE",nullptr,0)>0;
             const bool testLeakFullscreenOnly=GetEnvironmentVariableW(L"VEYRA_TEST_VRAM_LEAK_FULLSCREEN_ONLY",nullptr,0)>0;
+            const uint64_t testBudgetMiB=[]{wchar_t v[16]{};return GetEnvironmentVariableW(L"VEYRA_TEST_VRAM_BUDGET_MIB",v,16)?uint64_t(std::max(0,_wtoi(v))):0ull;}();
             std::vector<Microsoft::WRL::ComPtr<ID3D12Resource>> testLeak;
             auto watchVram=[&](uint64_t usage,uint64_t budget){
+                if(testBudgetMiB&&budget)budget=std::min<uint64_t>(budget,testBudgetMiB<<20);
                 (void)recentGraphCache.checkBudget();
                 bool fullscreen=false;
                 {std::lock_guard lock(mutex_);fullscreen=presentation_.fullscreen;}
@@ -1116,15 +1120,18 @@ void EngineController::run(HWND window,std::wstring path,PlayerOptions options,s
                 }
                 const bool protection=fullscreenMemoryProtection_.load();
                 if(protection!=vramProtectionEnabled){
-                    vramProtectionEnabled=protection;vramFullscreenBlocked=false;vramGrowthSamples=0;vramFloor=0;
+                    vramProtectionEnabled=protection;vramFullscreenBlocked=false;vramGrowthSamples=0;vramPressureSamples=0;vramFloor=0;
                     vramSettleUntil=Clock::now()+std::chrono::seconds(10);
                 }
-                if(!usage)return;
+                if(!usage){vramPressureSamples=0;return;}
                 // Leaving fullscreen stopped further growth in both field logs. Preserve
                 // the source/effects and avoid repeated failed graph rebuilds. This only
                 // contains the observed trigger; it does not identify the allocation owner
                 // or promise that already retained memory is returned.
                 if(vramFullscreenBlocked)return;
+                const bool tight=vramBudgetTight(usage,budget);
+                if(fullscreen&&protection&&tight){if(vramPressureSamples<3)++vramPressureSamples;}
+                else vramPressureSamples=0;
                 if(vramRecoverDone){
                     if(Clock::now()<vramRecoverCheckAt)return;
                     const int64_t released=(int64_t(vramRecoverBefore)-int64_t(usage))/(1<<20);
@@ -1141,25 +1148,31 @@ void EngineController::run(HWND window,std::wstring path,PlayerOptions options,s
                 }
                 if(vramRecoverStep)return;
                 if(options.settings.revision!=vramRevision){vramRevision=options.settings.revision;vramFloor=0;vramGrowthSamples=0;vramSettleUntil=Clock::now()+std::chrono::seconds(10);}
-                if(Clock::now()<vramSettleUntil)return;
+                if(Clock::now()<vramSettleUntil&&vramPressureSamples<3)return;
                 if(!vramFloor||usage<vramFloor)vramFloor=usage;
                 const uint64_t growth=usage-vramFloor;
                 const uint64_t fullscreenLimit=std::max<uint64_t>(512ull<<20,std::min<uint64_t>(2048ull<<20,budget/8));
-                if(vramProtectionEnabled&&fullscreen&&growth>fullscreenLimit){
-                    if(++vramGrowthSamples<3)return;
+                if(vramProtectionEnabled&&fullscreen&&(vramPressureSamples>=3||growth>fullscreenLimit)){
+                    if(vramPressureSamples<3&&++vramGrowthSamples<3)return;
                     vramFullscreenBlocked=true;vramWarned=true;
                     const std::wstring injected=gfx::riskyInjections();
                     {
                         std::lock_guard lock(mutex_);
                         snapshot_.vramRunawayMiB=growth>>20;snapshot_.vramInjected=injected;snapshot_.vramFullscreenUnsafe=true;
                     }
-                    veyra::log::warn("vram-watch",std::format("sustained fullscreen growth {} MiB (usage {} / budget {} MiB); requesting windowed playback, preserving source/effects; allocation owner unconfirmed; modules: {}",
-                        growth>>20,usage>>20,budget>>20,gfx::thirdPartyModules()));
+                    veyra::log::warn("vram-watch",std::format("fullscreen memory pressure (growth {} MiB; usage {} / budget {} MiB; low headroom={}); requesting windowed playback, preserving source/effects; modules: {}",
+                        growth>>20,usage>>20,budget>>20,vramPressureSamples>=3,gfx::thirdPartyModules()));
                     return;
                 }
                 vramGrowthSamples=0;
                 const uint64_t limit=std::max<uint64_t>(2048ull<<20,budget/4);
                 if(growth<=limit)return;
+                // Keep the current graph alive when the allocator already has little room.
+                if(tight){
+                    if(!vramWarned)veyra::log::warn("vram-watch",std::format("rebuild deferred: usage {} / budget {} MiB",usage>>20,budget>>20));
+                    vramWarned=true;
+                    return;
+                }
                 // Module presence is diagnostic context, not proof of allocation ownership.
                 // Evaluate a bounded recovery by the measured memory result, regardless of
                 // whether NVIDIA's plug-in (also present in stable local runs) is loaded.
@@ -1846,6 +1859,21 @@ void EngineController::run(HWND window,std::wstring path,PlayerOptions options,s
             // after a successful rebuild. Keep its status acknowledgement
             // until the first successfully processed frame, across loop turns.
             bool pendingSettingsAck=false;
+#ifdef VEYRA_ENABLE_XBOX
+            std::optional<Clock::time_point> xboxRetryAt, xboxFirstFrameDeadline;
+            std::string xboxDisconnectReason;
+            std::wstring xboxRetryFailure;
+            bool injectXboxServiceKick=GetEnvironmentVariableW(L"VEYRA_TEST_XBOX_SERVICE_KICK",nullptr,0)>0;
+            auto scheduleXboxRetry=[&]{
+                if(!xboxReconnectBudget.take())return false;
+                const auto delay=xboxReconnectBudget.delay();
+                xboxRetryAt=Clock::now()+delay;
+                const auto attempt=xboxReconnectBudget.attempts();
+                status(std::format(L"Xbox 串流中断，正在重连 {}/3…",attempt));
+                veyra::log::warn("xbox-reconnect",std::format("attempt={} delaySeconds={} reason={}",attempt,delay.count(),xboxDisconnectReason));
+                return true;
+            };
+#endif
             OnExit stopPresentation{[&]{liveScheduler.reset();finishReset(stop_?diagnostics::ResetOutcome::Cancelled:diagnostics::ResetOutcome::Failed);std::lock_guard lock(mutex_);if(snapshot_.sessionId==runSessionId){if(frameFlow)snapshot_.metrics.flow=frameFlow->snapshot(host100ns());activeFlow_.reset();}}};
             while(!stop_){
                 watchdog_->beat();
@@ -1857,6 +1885,39 @@ void EngineController::run(HWND window,std::wstring path,PlayerOptions options,s
                 collectTimings();
                 loopTrace.mark("collect");
                 networkTick();
+#ifdef VEYRA_ENABLE_XBOX
+                if(xboxRetryAt&&Clock::now()>=*xboxRetryAt){
+                    auto next=std::make_shared<source::XboxSessionSource>();
+                    next->start(*xboxRequest);
+                    xb=std::move(next);activeSource=xb.get();
+                    {std::lock_guard lock(mutex_);activeXbox_=xb;}
+                    xboxRetryAt.reset();
+                    xboxFirstFrameDeadline=Clock::now()+std::chrono::seconds(45);
+                }
+                if(xboxFirstFrameDeadline){
+                    const AVFrame* first=nullptr;
+                    const auto result=xb->read(cachedPacket,&first);
+                    if(result==source::SourceReadStatus::Frame){
+                        cachedFrame=av_frame_clone(first);
+                        if(!cachedFrame){status(L"Xbox 重连后无法保存首帧。",true);break;}
+                        xboxFirstFrameDeadline.reset();
+                        initialRemoteFramePending=true;reset=true;pendingResetCause=pipeline::ResetReason::SourceSwitch;
+                        status(L"Xbox 已重新连接");
+                        veyra::log::info("xbox-reconnect","first decoded frame received; reset all graph history");
+                    }else if(result==source::SourceReadStatus::Error||Clock::now()>=*xboxFirstFrameDeadline){
+                        xboxRetryFailure=xb->stats().message;
+                        if(result!=source::SourceReadStatus::Error||xboxRetryFailure.empty())
+                            xboxRetryFailure=L"主机未及时返回可解码的画面。";
+                        xb->close();xboxFirstFrameDeadline.reset();
+                        if(!scheduleXboxRetry()){status(L"Xbox 重连失败："+xboxRetryFailure,true);break;}
+                    }
+                }
+                if(xboxRetryAt||xboxFirstFrameDeadline){
+                    publishWaitingProgress();
+                    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                    continue;
+                }
+#endif
                 // P0 缓冲闸门：音频 5 秒没回来就不再一起等 —— 暂停并明确告诉用户重开，
                 // 而不是让画面和声音一起冻住、什么提示都没有。
                 // P0: once the sound has been gone for five seconds, stop waiting together:
@@ -2343,6 +2404,10 @@ void EngineController::run(HWND window,std::wstring path,PlayerOptions options,s
                 if(cachedFrame&&((initialRemoteFramePending||initialFileFramePending)||(transaction&&(!isCapture||paused_)))){frame=cachedFrame;pkt=cachedPacket;initialRemoteFramePending=false;initialFileFramePending=false;}
                 else if(!isImage){
                     auto rs=physicalCapture?captureSource.tryRead(pkt,&frame):activeSource->read(pkt,&frame);
+#ifdef VEYRA_ENABLE_XBOX
+                    const bool xboxTestKick=xb&&injectXboxServiceKick&&frames>=120;
+                    if(xboxTestKick){injectXboxServiceKick=false;rs=source::SourceReadStatus::Error;}
+#endif
                     // Keep the accepted transaction and rollback state alive until
                     // the next real capture sample arrives. Never bind old PTS to now.
                     while(transaction&&isCapture&&rs==source::SourceReadStatus::Waiting&&!stop_){
@@ -2377,38 +2442,21 @@ void EngineController::run(HWND window,std::wstring path,PlayerOptions options,s
 #endif
 #ifdef VEYRA_ENABLE_XBOX
                         if(xb){
-                            const auto failure=xb->stats();
+                            auto failure=xb->stats();
+                            if(xboxTestKick){
+                                failure.disconnectReason="KickForServerShutdown";
+                                failure.reconnectable=true;
+                                veyra::log::info("xbox-test","injected a recoverable Xbox service disconnect");
+                            }
                             if(failure.reconnectable && xboxRequest && !stop_){
                                 xboxReconnectBudget.disconnected();
                                 drainLivePresentation();
                                 if(!ring.drainQueue()){status(L"Xbox 重连时 GPU 排空失败",true);break;}
                                 xb->videoReset();av_frame_free(&cachedFrame);out={};hasOutput=false;
-                                bool recovered=false;
-                                while(!stop_ && xboxReconnectBudget.take()){
-                                    const auto attempt=xboxReconnectBudget.attempts();
-                                    status(std::format(L"Xbox 串流中断（{}），正在重连 {}/3…",std::wstring(failure.disconnectReason.begin(),failure.disconnectReason.end()),attempt));
-                                    veyra::log::warn("xbox-reconnect",std::format("attempt={} reason={}",attempt,failure.disconnectReason));
-                                    for(unsigned wait=0;wait<attempt*10&&!stop_;++wait)std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                                    if(stop_)break;
-                                    if(!xb->connect(*xboxRequest))continue;
-                                    const auto deadline=Clock::now()+std::chrono::seconds(20);
-                                    while(!stop_&&Clock::now()<deadline){
-                                        const AVFrame* first=nullptr;
-                                        const auto result=xb->read(cachedPacket,&first);
-                                        if(result==source::SourceReadStatus::Frame){cachedFrame=av_frame_clone(first);recovered=cachedFrame!=nullptr;break;}
-                                        if(result==source::SourceReadStatus::Error)break;
-                                        std::this_thread::sleep_for(std::chrono::milliseconds(2));
-                                    }
-                                    if(recovered)break;
-                                    xb->close();
-                                }
-                                if(recovered){
-                                    initialRemoteFramePending=true;reset=true;pendingResetCause=pipeline::ResetReason::SourceSwitch;
-                                    status(L"Xbox 已重新连接");veyra::log::info("xbox-reconnect","first decoded frame received; reset all graph history");
-                                    continue;
-                                }
-                                if(stop_)break;
-                                status(L"Xbox 重连失败："+xb->stats().message,true);break;
+                                xboxDisconnectReason=failure.disconnectReason;
+                                xb->close();
+                                if(scheduleXboxRetry())continue;
+                                status(L"Xbox 重连失败："+failure.message,true);break;
                             }
                             status(failure.message.empty()?L"Xbox 串流中断，请重新连接。":failure.message,true);break;
                         }
@@ -2448,6 +2496,10 @@ void EngineController::run(HWND window,std::wstring path,PlayerOptions options,s
                     drainLivePresentation();if(!ring.drainQueue()){status(L"显存回收时排空失败",true);break;}
                     recentGraphCache.evict("memory-recovery");
                     uint64_t budget=0;ctx.videoMemoryInfo(budget,vramRecoverBefore);
+                    if(vramBudgetTight(vramRecoverBefore,budget)){
+                        veyra::log::warn("vram-watch","rebuild cancelled: budget headroom dropped before the rebuild");
+                        continue;
+                    }
                     veyra::log::warn("vram-watch",std::format("rebuilding the {} to release video memory (usage {} MiB)",step==1?"presentation swapchain":"processing graph and swapchain",vramRecoverBefore>>20));
                     presenter.close();
                     if(step==2){graph->shutdown();graph=std::make_unique<pipeline::EnhanceGraph>(ctx,ring,&coreCache);graphBytes=0;out={};hasOutput=false;}

@@ -1024,7 +1024,7 @@ VPage {
                         }
                         VRow {
                             label: qsTr("全屏显存增长保护")
-                            hint: qsTr("检测异常增长时自动退出全屏；默认关闭")
+                            hint: qsTr("显存异常增长或持续接近当前预算时切换到窗口播放，保留串流和增强效果。")
                             VSwitch {
                                 objectName: "set-fullscreen-memory-protection"
                                 checked: !!veyra.preferences.fullscreenMemoryProtection

@@ -8594,17 +8594,17 @@
    "ru": "Полноэкранная VRAM защита роста"
   },
   {
-   "zh": "全屏期间显存持续增长了 %1 GB，已退出全屏保护播放；当前会话使用窗口播放。增强设置保留。原因尚未确认，可开启设置中的 OBS 游戏采集兼容、重启后测试全屏。",
+   "zh": "全屏显存保护已切换到窗口播放，串流和增强设置保持不变。",
    "src": "src/ui/QmlPlayerBridge.cpp",
-   "zh-TW": "全螢幕期間顯示記憶體持續增加了 %1 GB，已退出全螢幕保護播放；目前工作階段使用視窗播放。增強設定保留。原因尚未確認，可開啟設定中的 OBS 遊戲擷取相容、重新啟動後測試全螢幕。",
-   "en": "VRAM kept growing by %1 GB in fullscreen. Playback has returned to a window for this session, keeping enhancement settings. The cause is unconfirmed. You can enable OBS game capture compatibility in Settings, restart, and test fullscreen again.",
-   "ja": "全画面中に VRAM が %1 GB 増え続けたため、この再生はウィンドウ表示に戻りました。映像処理の設定は維持します。原因は未確認です。設定で OBS ゲームキャプチャ互換を有効にし、再起動して全画面を再テストできます。",
-   "ko": "전체 화면에서 VRAM이 %1GB 이상 계속 늘어 창 모드로 전환했습니다. 보정 설정은 유지되며 원인은 아직 확인되지 않았습니다. 설정에서 OBS 게임 캡처 호환성을 켜고 다시 시작한 뒤 확인할 수 있습니다.",
-   "es": "VRAM siguió creciendo %1 GB en pantalla completa. Playback ha regresado a una ventana para esta sesión, manteniendo la configuración de mejora. La causa no está confirmada. Puede activar OBS compatibilidad de captura de juego en Ajustes, reiniciar y probar pantalla completa de nuevo.",
-   "fr": "VRAM continue de croître par %1 GB en plein écran. Playback est retourné à une fenêtre pour cette session, conservant les paramètres d'amélioration. La cause n'est pas confirmée. Vous pouvez activer la compatibilité de capture de jeu OBS dans Paramètres, redémarrer et tester à nouveau plein écran.",
-   "de": "VRAM wuchs im Vollbild um %1 GB. Die Wiedergabe ist für diese Sitzung in ein Fenster zurückgekehrt, wobei die Erweiterungseinstellungen beibehalten wurden. Die Ursache ist nicht bestätigt. Sie können die OBS-Spielerfassungskompatibilität in den Einstellungen aktivieren, neu starten und den Vollbildmodus erneut testen.",
-   "pt-BR": "VRAM continuou a crescer em %1 GB em tela cheia. A reprodução retornou a uma janela para esta sessão, mantendo as configurações de realce. A causa não está confirmada. Você pode ativar OBS a compatibilidade de captura de jogo em Configurações, reiniciar e testar tela cheia novamente.",
-   "ru": "VRAM продолжает расти %1 GB в полноэкранном режиме. Воспроизведение возвратилось к окну для этой сессии, сохраняя настройки улучшения. Причина неподтверждена. Вы можете включить совместимость захвата игры OBS в настройках, перезагрузить и снова протестировать полный экран."
+   "zh-TW": "全螢幕顯示記憶體保護已切換到視窗播放，串流和增強設定保持不變。",
+   "en": "Fullscreen VRAM protection switched playback to windowed mode. Your stream and enhancement settings are still active.",
+   "ja": "VRAM 保護によりウィンドウ表示に切り替えました。ストリームと画質設定は維持されています。",
+   "ko": "VRAM 보호로 창 모드로 전환했습니다. 스트림과 보정 설정은 유지됩니다.",
+   "es": "La protección de VRAM cambió la reproducción a modo ventana. La transmisión y los ajustes siguen activos.",
+   "fr": "La protection de la VRAM a basculé la lecture en mode fenêtré. Le flux et les réglages restent actifs.",
+   "de": "Der VRAM-Schutz hat die Wiedergabe in den Fenstermodus versetzt. Stream und Einstellungen bleiben aktiv.",
+   "pt-BR": "A proteção de VRAM mudou a reprodução para o modo janela. A transmissão e as configurações continuam ativas.",
+   "ru": "Защита VRAM переключила воспроизведение в оконный режим. Поток и настройки улучшения сохранены."
   },
   {
    "zh": "全屏画面（双击画面 / F11）",
@@ -25080,17 +25080,17 @@
    "ru": "Обнаружена потеря сетевого пакета; %1 точка(ы) пропущена автоматически"
   },
   {
-   "zh": "检测异常增长时自动退出全屏；默认关闭",
+   "zh": "显存异常增长或持续接近当前预算时切换到窗口播放，保留串流和增强效果。",
    "src": "qml/SettingsPage.qml",
-   "zh-TW": "偵測異常增長時自動退出全螢幕；預設關閉",
-   "en": "Exit fullscreen if abnormal growth is detected; off by default",
-   "ja": "異常な増加を検出すると全画面を解除（初期設定はオフ）",
-   "ko": "VRAM 사용량이 비정상적으로 늘면 전체 화면을 해제합니다. 기본은 꺼짐입니다.",
-   "es": "Exit fullscreen si se detecta un crecimiento anormal; apagado por defecto",
-   "fr": "Sortie en plein écran si une croissance anormale est détectée; désactivée par défaut",
-   "de": "Vollbild verlassen, wenn abnormales Wachstum erkannt wird; standardmäßig ausgeschaltet",
-   "pt-BR": "Sair do ecrã completo se for detectado um crescimento anormal; desligado por omissão",
-   "ru": "Выход полный экран, если обнаружен аномальный рост; выключен по умолчанию"
+   "zh-TW": "顯示記憶體異常增長或持續接近目前預算時切換到視窗播放，保留串流和增強效果。",
+   "en": "Switches to windowed playback if VRAM grows abnormally or stays near the current GPU budget. Keeps the stream and effects active.",
+   "ja": "VRAM が異常に増加するか、現在の予算に近い状態が続くとウィンドウ表示に切り替えます。ストリームと効果は維持されます。",
+   "ko": "VRAM 사용량이 비정상적으로 증가하거나 현재 한도에 계속 가까우면 창 모드로 전환합니다. 스트림과 효과는 유지됩니다.",
+   "es": "Cambia a modo ventana si la VRAM aumenta de forma anormal o se mantiene cerca del presupuesto actual. Conserva la transmisión y los efectos.",
+   "fr": "Passe en mode fenêtré si la VRAM augmente anormalement ou reste proche du budget actuel. Le flux et les effets restent actifs.",
+   "de": "Wechselt in den Fenstermodus, wenn der VRAM-Verbrauch ungewöhnlich steigt oder nahe am aktuellen Budget bleibt. Stream und Effekte bleiben aktiv.",
+   "pt-BR": "Muda para o modo janela se a VRAM aumentar de forma anormal ou ficar próxima do orçamento atual. A transmissão e os efeitos continuam ativos.",
+   "ru": "Переключается в оконный режим при аномальном росте VRAM или длительном приближении к лимиту. Поток и эффекты сохраняются."
   },
   {
    "zh": "模型下载失败，请检查网络后重试",

@@ -16,6 +16,7 @@ extern "C" {
 
 #include <algorithm>
 #include <chrono>
+#include <condition_variable>
 #include <format>
 #include <vector>
 
@@ -179,11 +180,10 @@ void XboxSessionSource::setState(XboxStats::State state, std::wstring message) {
     stats_.message = std::move(message);
 }
 
-bool XboxSessionSource::connect(XboxConnectDesc desc) {
+void XboxSessionSource::start(XboxConnectDesc desc) {
     close();
     {
         std::lock_guard lock(mutex_);
-        initialized_ = started_ = false;
         latest_.reset();
         view_.reset();
         sequence_ = skipped_ = 0;
@@ -194,29 +194,18 @@ bool XboxSessionSource::connect(XboxConnectDesc desc) {
     }
     p_ = std::make_unique<Impl>();
     cancel_ = false;
-    owner_ = std::jthread([this, request = std::move(desc)]() mutable { run(std::move(request)); });
-    std::unique_lock lock(mutex_);
-    ready_.wait(lock, [&] { return initialized_; });
-    if (!started_) {
-        lock.unlock();
-        close();
-        return false;
-    }
-    info_ = publishedInfo_;
-    return true;
+    owner_ = std::jthread([this, request = std::move(desc)](std::stop_token stop) mutable { run(std::move(request), stop); });
 }
 
-void XboxSessionSource::run(XboxConnectDesc desc) {
+void XboxSessionSource::run(XboxConnectDesc desc, std::stop_token stop) {
     auto& p = *p_;
     p.desc = std::move(desc);
+    bool initialized = false;
     const auto fail = [&](std::wstring message) {
         log::error("xbox", "connect failed");
         std::lock_guard lock(mutex_);
         stats_.state = XboxStats::State::Failed;
         stats_.message = std::move(message);
-        initialized_ = true;
-        started_ = false;
-        ready_.notify_all();
     };
     const auto cancelled = [&] { return cancel_.load() || (p.desc.stopRequested && p.desc.stopRequested->load()); };
 
@@ -335,13 +324,13 @@ void XboxSessionSource::run(XboxConnectDesc desc) {
 
         ApiSignaling signaling(*p.api, p.sessionId);
         std::string error;
-        if (!p.rtc.start(signaling, &error, std::chrono::seconds(20), p.desc.resolution)) {
+        if (!p.rtc.start(signaling, &error, std::chrono::seconds(20), p.desc.resolution, stop)) {
             // SDP/service failures happen before an ICE/UDP connection is attempted.
             // Keep the actual stage instead of diagnosing every failure as a firewall.
             fail(L"Xbox 连接失败：" + widen(error));
             return;
         }
-        if (!p.rtc.waitReady(std::chrono::seconds(10))) { fail(L"主机连上了，但没有完成握手。请重试。"); return; }
+        if (!p.rtc.waitReady(std::chrono::seconds(10), stop)) { fail(L"主机连上了，但没有完成握手。请重试。"); return; }
 
         // Decode and keepalive.
         p.stopDecode = false;
@@ -381,24 +370,20 @@ void XboxSessionSource::run(XboxConnectDesc desc) {
                 stats_.state = XboxStats::State::Streaming;
                 stats_.message.clear();
             }
-            publishedInfo_ = info_;
-            publishedInfo_.opened = true;
-            publishedInfo_.kind = pipeline::SourceKind::Xbox;
-            publishedInfo_.averageFps = 60.0;
-            publishedInfo_.nominalRateNum = 60;
-            publishedInfo_.nominalRateDen = 1;
-            publishedInfo_.timestampQuantum = 1.0 / 60.0;
-            publishedInfo_.duration = pipeline::Rational::unknown();
-            publishedInfo_.width = stats_.width ? stats_.width : requestWidth;
-            publishedInfo_.height = stats_.height ? stats_.height : requestHeight;
-            publishedInfo_.displayAspect = 16.0 / 9.0;
-            publishedInfo_.videoCodecName = "H.264";
-            publishedInfo_.color = fallbackColor();
-            info_ = publishedInfo_;
-            initialized_ = true;
-            started_ = true;
+            info_.opened = true;
+            info_.kind = pipeline::SourceKind::Xbox;
+            info_.averageFps = 60.0;
+            info_.nominalRateNum = 60;
+            info_.nominalRateDen = 1;
+            info_.timestampQuantum = 1.0 / 60.0;
+            info_.duration = pipeline::Rational::unknown();
+            info_.width = stats_.width ? stats_.width : requestWidth;
+            info_.height = stats_.height ? stats_.height : requestHeight;
+            info_.displayAspect = 16.0 / 9.0;
+            info_.videoCodecName = "H.264";
+            info_.color = fallbackColor();
+            initialized = true;
         }
-        ready_.notify_all();
         if (!p.ended.load()) log::info("xbox", "streaming");
         while (!cancelled() && !p.ended.load()) std::this_thread::sleep_for(std::chrono::milliseconds(50));
         if (p.ended.load()) {
@@ -421,16 +406,16 @@ void XboxSessionSource::run(XboxConnectDesc desc) {
             if (e.status == 401 || e.status == 403 || std::string(e.what()) == "sign-in expired") message = L"Xbox 登录已失效，请重新登录。";
             else message = std::format(L"Xbox 服务返回错误（HTTP {}）。", e.status);
         }
-        if (!initialized_) fail(std::move(message));
+        if (!initialized) fail(std::move(message));
         else setState(XboxStats::State::Failed, std::move(message));
     } catch (const xbox::NetworkError& e) {
         log::error("xbox", std::string("network: ") + e.what());
         std::wstring message = cancel_ ? L"已取消。" : L"连不上 Xbox 服务，请检查网络。（" + widen(e.what()) + L"）";
-        if (!initialized_) fail(std::move(message));
+        if (!initialized) fail(std::move(message));
         else setState(XboxStats::State::Failed, std::move(message));
     } catch (const std::exception& e) {
         log::error("xbox", std::string("session failed: ") + e.what());
-        if (!initialized_) fail(L"Xbox 串流出错：" + widen(e.what()));
+        if (!initialized) fail(L"Xbox 串流出错：" + widen(e.what()));
         else setState(XboxStats::State::Failed, L"Xbox 串流出错：" + widen(e.what()));
     }
 }
@@ -618,7 +603,9 @@ SourceReadStatus XboxSessionSource::read(pipeline::FramePacket& packet, const AV
     if (frame) *frame = nullptr;
     std::lock_guard lock(mutex_);
     if (stats_.state == XboxStats::State::Failed || stats_.state == XboxStats::State::Ended) return SourceReadStatus::Error;
-    if (!latest_) return started_ ? SourceReadStatus::Waiting : SourceReadStatus::Error;
+    if (stats_.state != XboxStats::State::Streaming || !latest_) {
+        return stats_.state == XboxStats::State::Idle ? SourceReadStatus::Error : SourceReadStatus::Waiting;
+    }
     packet = latest_->packet;
     info_ = latest_->info;
     view_ = std::move(latest_->frame);
@@ -718,7 +705,10 @@ uint64_t XboxSessionSource::skipped() const {
 
 void XboxSessionSource::close() noexcept {
     cancel_ = true;
-    if (owner_.joinable()) owner_.join();
+    if (owner_.joinable()) {
+        owner_.request_stop();
+        owner_.join();
+    }
     if (p_) {
         auto& p = *p_;
         {
@@ -755,7 +745,6 @@ void XboxSessionSource::close() noexcept {
     latest_.reset();
     view_.reset();
     info_ = {};
-    started_ = false;
     if (stats_.state == XboxStats::State::Streaming || stats_.state == XboxStats::State::Connecting || stats_.state == XboxStats::State::Starting)
         stats_.state = XboxStats::State::Idle;
 }
