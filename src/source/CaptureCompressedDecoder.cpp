@@ -19,8 +19,19 @@ extern "C" {
 #include "veyra/media/FFmpegVideoDecoder.h"
 #include "veyra/pipeline/CaptureUploadFrame.h"
 #include "veyra/pipeline/FramePacket.h"
+#include "veyra/pipeline/ColorMetadata.h"
+#include "veyra/source/CaptureColorOverride.h"
 
 namespace veyra::source {
+
+pipeline::ColorDescription resolveCompressedCaptureColor(AVFrame& frame,const pipeline::ColorDescription& fallback,unsigned rangeOverride) {
+    auto color=pipeline::resolveFrameColor(frame,fallback);
+    if(rangeOverride){
+        applyCaptureColorOverride(color,rangeOverride);
+        frame.color_range=color.range==pipeline::ColorRange::Limited?AVCOL_RANGE_MPEG:AVCOL_RANGE_JPEG;
+    }
+    return color;
+}
 
 namespace {
 
@@ -60,8 +71,8 @@ struct CaptureCompressedDecoder::Impl {
     unsigned width = 0, height = 0;
     media::FFmpegVideoDecoder decoder;
     AVCodecParameters* parameters = nullptr;
-    AVFrame* nativeNv12 = nullptr;
     SwsContext* sws = nullptr;
+    bool nativeSoftwareExtent = false;
     bool stream = false;               // setStreamProfile(): PC / Xbox streaming
     bool hardwareRequested = false;
     bool hardware = false;
@@ -128,7 +139,6 @@ struct CaptureCompressedDecoder::Impl {
 
     void close()
     {
-        av_frame_free(&nativeNv12);
         if (sws) { sws_freeContext(sws); sws = nullptr; }
         if (parameters) { avcodec_parameters_free(&parameters); parameters = nullptr; }
         decoder.close();
@@ -186,11 +196,24 @@ struct CaptureCompressedDecoder::Impl {
                     captureCodecKey(codec), description->comp[0].depth));
             }
         }
+        const bool native=stream&&nativeSoftwareExtent;
+        const int outputWidth=native?frame.width:int(width),outputHeight=native?frame.height:int(height);
+        if(outputWidth<=0||outputHeight<=0||outputWidth>D3D12_REQ_TEXTURE2D_U_OR_V_DIMENSION||
+           outputHeight>D3D12_REQ_TEXTURE2D_U_OR_V_DIMENSION){
+            error="invalid decoded video extent";++failures;return false;
+        }
+        if(target->width!=outputWidth||target->height!=outputHeight||
+           target->format!=AV_PIX_FMT_NV12||!target->data[0]||!target->data[1]){
+            if(!native){error="fixed capture target extent or buffer does not match";++failures;return false;}
+            av_frame_unref(target);
+            target->format=AV_PIX_FMT_NV12;target->width=outputWidth;target->height=outputHeight;
+            if(av_frame_get_buffer(target,32)<0){error="native-size stream output allocation failed";++failures;return false;}
+        }
         if (planarToNv12(frame, target)) { copyFrameProperties(frame, target, true); return true; }
         // swscale cannot supply the analysis pixels of an upload-backed target.
         pipeline::useCaptureUploadCpuPlanes(*target);
         sws = sws_getCachedContext(sws, frame.width, frame.height, sourceFormat,
-            target->width, target->height, AV_PIX_FMT_NV12, SWS_BILINEAR, nullptr, nullptr, nullptr);
+            outputWidth, outputHeight, AV_PIX_FMT_NV12, SWS_BILINEAR, nullptr, nullptr, nullptr);
         if (sws == nullptr) {
             error = "swscale context creation failed";
             ++failures;
@@ -288,8 +311,8 @@ bool CaptureCompressedDecoder::decode(const uint8_t* data, size_t bytes, int64_t
     hardware = false;
     p.waiting = false;
     const bool receiveOnly = data == nullptr && bytes == 0;
-    if (!p.decoder.opened() || (!receiveOnly && (data == nullptr || bytes == 0))) {
-        p.error = "decode called without an open decoder or a valid payload";
+    if (!p.decoder.opened() || (!receiveOnly && (data == nullptr || bytes == 0)) || nv12Target == nullptr) {
+        p.error = "decode called without an open decoder or a writable target frame";
         ++p.failures;
         return false;
     }
@@ -375,21 +398,6 @@ bool CaptureCompressedDecoder::decode(const uint8_t* data, size_t bytes, int64_t
             return true;
         }
         const auto decoded = std::chrono::steady_clock::now();
-        if (!nv12Target) {
-            if (!p.nativeNv12) p.nativeNv12 = av_frame_alloc();
-            if (p.nativeNv12) {
-                av_frame_unref(p.nativeNv12);
-                p.nativeNv12->format = AV_PIX_FMT_NV12;
-                p.nativeNv12->width = frame->width;
-                p.nativeNv12->height = frame->height;
-                if (av_frame_get_buffer(p.nativeNv12, 32) >= 0) nv12Target = p.nativeNv12;
-            }
-            if (!nv12Target) {
-                p.error = "could not allocate NV12 at the decoded video size";
-                ++p.failures;
-                return false;
-            }
-        }
         if (!p.convertToNv12(*frame, nv12Target)) return false;
         average(p.decodeMs, started, decoded);
         average(p.convertMs, decoded, std::chrono::steady_clock::now());
@@ -403,6 +411,8 @@ bool CaptureCompressedDecoder::decode(const uint8_t* data, size_t bytes, int64_t
     ++p.failures;
     return false;
 }
+
+void CaptureCompressedDecoder::preserveSoftwareStreamExtent(bool enabled) { p_->nativeSoftwareExtent=enabled; }
 
 bool CaptureCompressedDecoder::opened() const { return p_->decoder.opened(); }
 bool CaptureCompressedDecoder::hardwareActive() const { return p_->hardware; }
