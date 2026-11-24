@@ -48,5 +48,6 @@ $items = @(Get-ChildItem -LiteralPath $payload -Recurse -File | Sort-Object Full
 $archive = Join-Path $Output "Veyra-$version-Xbox-NVIDIA-Patch.zip"
 Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $archive -CompressionLevel Optimal
 $hash = (Get-FileHash -LiteralPath $archive).Hash.ToLowerInvariant()
-"$hash  $([IO.Path]::GetFileName($archive))" | Set-Content -LiteralPath (Join-Path $Output 'SHA256SUMS.txt') -Encoding ascii
+# LF line ending: `sha256sum -c` treats a trailing CR as part of the file name.
+[IO.File]::WriteAllText((Join-Path $Output 'SHA256SUMS.txt'), "$hash  $([IO.Path]::GetFileName($archive))`n")
 @{ source = $sha; version = $version; archive = $archive; sha256 = $hash; payloadFiles = $items.Count } | ConvertTo-Json

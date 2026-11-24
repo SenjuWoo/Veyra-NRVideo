@@ -1,5 +1,9 @@
 # Xbox/NVIDIA fork changelog
 
+## Unreleased
+
+- `SHA256SUMS.txt` uses LF line endings, so `sha256sum -c` verifies the ZIP on any system. The 2.2.3 release asset was replaced with the LF copy; the checksum itself is unchanged.
+
 ## 2.2.3
 
 - Based on official Veyra 2.2.1: the two 60→30 cadence modes, reticle and HUD protection for frame generation, video denoise, NVIDIA Image Scaling, original-picture capture start and the GPU cost reductions. Setup now uses the 2.2.1 NVIDIA package as its base.
