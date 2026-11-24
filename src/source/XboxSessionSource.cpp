@@ -82,6 +82,10 @@ AVFrame* allocNv12(unsigned width, unsigned height) {
     return frame;
 }
 
+int64_t unixNow() {
+    return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
 double movingAverage(double current, double sample) { return current > 0 ? current * 0.95 + sample * 0.05 : sample; }
 
 // True when the access unit carries an IDR slice or a sequence parameter set (a point to start decoding).
@@ -122,7 +126,9 @@ struct XboxSessionSource::Impl {
     XboxConnectDesc desc;
     std::shared_ptr<xbox::HttpsTransport> http;
     std::unique_ptr<xbox::StreamApi> api;
-    std::string host, gsToken;
+    std::string host;
+    std::atomic<int64_t> tokenExpiresAt{0};     // unix seconds; the streaming token outlives no session
+    std::atomic<bool> tokenRenewed{false};      // the next accepted keepalive is worth a log line
     std::string sessionId;
     xbox::WebRtcSession rtc;
     std::atomic<bool> streaming{false}, ended{false};
@@ -229,7 +235,16 @@ void XboxSessionSource::run(XboxConnectDesc desc, std::stop_token stop) {
         p.http = xbox::makeWinHttpTransport(&cancel_);
         p.api = std::make_unique<xbox::StreamApi>(p.http, access.host, access.gsToken);
         p.host = access.host;
-        p.gsToken = access.gsToken;
+        p.tokenExpiresAt = access.expiresAt;
+        // Field log, 5 h GTA session: keepalive answered 401 from 4 h 05 min and the console
+        // closed the stream 55 minutes later. Renew the token instead of sending the stale one.
+        p.api->setTokenRenewal([this, account = p.desc.account](const std::string& rejected) {
+            const xbox::StreamingAccess renewed = account->renewStreamingAccess(rejected);
+            p_->tokenExpiresAt = renewed.expiresAt;
+            p_->tokenRenewed = true;
+            log::info("xbox", std::format("streaming token renewed after a rejection; valid for {} s", renewed.expiresAt - unixNow()));
+            return renewed.gsToken;
+        });
         log::info("xbox", "streaming region " + access.regionName + " host " + access.host);
 
         setState(XboxStats::State::Starting, L"正在唤醒主机并准备串流…");
@@ -353,12 +368,60 @@ void XboxSessionSource::run(XboxConnectDesc desc, std::stop_token stop) {
         p.keepaliveThread = std::thread([this] {
             auto& q = *p_;
             auto next = Clock::now() + std::chrono::seconds(30);
+            // VEYRA_TEST_XBOX_TOKEN_RENEW_S=n renews n seconds into the stream, to prove on a real
+            // console that a session accepts a token issued after it started.
+            const int64_t testRenewAt = [] {
+                wchar_t v[16]{};
+                const int seconds = GetEnvironmentVariableW(L"VEYRA_TEST_XBOX_TOKEN_RENEW_S", v, 16) ? _wtoi(v) : 0;
+                return seconds > 0 ? unixNow() + seconds : int64_t(0);
+            }();
+            bool testRenewed = false;
+            int64_t renewedAt = 0;
+            // One line a minute so a long session leaves a record of what the console delivered.
+            // Own counters: the UI's one-second window in stats() is left alone.
+            auto healthAt = Clock::now();
+            uint64_t healthUnits = q.units.load(), healthDecoded = q.decoded.load(), healthDropped = q.dropped.load(),
+                     healthErrors = q.errors.load();
+            xbox::WebRtcStats healthRtc = q.rtc.stats();
             while (!cancel_.load() && !q.ended.load()) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                if (const auto now = Clock::now(); now - healthAt >= std::chrono::seconds(60)) {
+                    const double seconds = std::chrono::duration<double>(now - healthAt).count();
+                    const uint64_t units = q.units.load(), decoded = q.decoded.load(), dropped = q.dropped.load(),
+                                   errors = q.errors.load();
+                    const xbox::WebRtcStats rtc = q.rtc.stats();
+                    double decodeMs = 0;
+                    { std::lock_guard lock(q.statsMutex); decodeMs = q.decodeMs; }
+                    uint32_t width = 0, height = 0;
+                    { std::lock_guard lock(mutex_); width = stats_.width; height = stats_.height; }
+                    log::info("xbox-stats", std::format(
+                        "received={:.1f}fps decoded={:.1f}fps video={:.1f}Mbps dropped={} decodeErrors={} keyframeRequests={} "
+                        "rttMs={:.1f} decodeMs={:.2f} size={}x{} hardware={}",
+                        double(units - healthUnits) / seconds, double(decoded - healthDecoded) / seconds,
+                        double(rtc.videoBytes - healthRtc.videoBytes) * 8.0 / seconds / 1e6, dropped - healthDropped,
+                        errors - healthErrors, rtc.keyframeRequests - healthRtc.keyframeRequests, rtc.rttMs, decodeMs,
+                        width, height, q.hardwareDecodeStatus.load(std::memory_order_relaxed)));
+                    healthAt = now; healthUnits = units; healthDecoded = decoded; healthDropped = dropped;
+                    healthErrors = errors; healthRtc = rtc;
+                }
                 if (Clock::now() < next) continue;
                 next = Clock::now() + std::chrono::seconds(30);
                 try {
+                    // Five minutes ahead of expiry, so no keepalive goes out with a dead token.
+                    const int64_t now = unixNow(), expires = q.tokenExpiresAt.load();
+                    const bool testDue = testRenewAt && !testRenewed && now >= testRenewAt;
+                    if (((expires > 0 && now >= expires - 300) || testDue) && now - renewedAt >= 120) {
+                        testRenewed = testRenewed || testDue;
+                        renewedAt = now;
+                        const xbox::StreamingAccess renewed = q.desc.account->renewStreamingAccess(q.api->token());
+                        q.api->setToken(renewed.gsToken);
+                        q.tokenExpiresAt = renewed.expiresAt;
+                        q.tokenRenewed = true;
+                        log::info("xbox", std::format("streaming token renewed {} s before expiry; valid for {} s",
+                            expires - now, renewed.expiresAt - now));
+                    }
                     q.api->keepalive(q.sessionId);
+                    if (q.tokenRenewed.exchange(false)) log::info("xbox", "keepalive accepted with the renewed streaming token");
                 } catch (const xbox::ServiceError& e) {
                     log::warn("xbox", std::format("keepalive HTTP {}", e.status));
                     if (e.status == 404) {
@@ -758,7 +821,7 @@ void XboxSessionSource::close() noexcept {
         // The session's own transport is cancelled by now, and teardown must not wait on the network:
         // a detached request with its own transport and copies of what it needs.
         if (p.api && !p.sessionId.empty()) {
-            std::thread([host = p.host, token = p.gsToken, id = p.sessionId] {
+            std::thread([host = p.host, token = p.api->token(), id = p.sessionId] {
                 try {
                     xbox::StreamApi(xbox::makeWinHttpTransport(), host, token).stop(id);
                     log::info("xbox", "session " + id + " stopped");
