@@ -16,10 +16,33 @@ jobs:
       - name: Validate the Windows installer syntax
         shell: powershell
         run: |
-          $tokens = $errors = $null
-          [void][System.Management.Automation.Language.Parser]::ParseFile(
-            (Resolve-Path scripts/xbox-portable/Install-VeyraXbox.ps1).Path, [ref]$tokens, [ref]$errors)
-          if ($errors) { $errors | Format-List; exit 1 }
+          foreach ($script in 'Install-VeyraXbox.ps1', 'Build-Package.ps1') {
+            $tokens = $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path "scripts/xbox-portable/$script").Path, [ref]$tokens, [ref]$errors)
+            if ($errors) { $errors | Format-List; exit 1 }
+          }
+      - name: Validate the bundled presets
+        shell: powershell
+        run: |
+          # One list preset per file. The frame generation stage keeps a multiplier of 2..8 even when it is off;
+          # a value outside that range stops Veyra from saving its session.
+          $presets = @(Get-ChildItem scripts/xbox-portable/presets -Filter *.vpreset)
+          if ($presets.Count -lt 3) { throw 'Expected the three example presets.' }
+          foreach ($preset in $presets) {
+            $bytes = [IO.File]::ReadAllBytes($preset.FullName)
+            if ($bytes -contains 13) { throw "$($preset.Name) has CR line endings." }
+            $lines = [Text.Encoding]::UTF8.GetString($bytes).Split("`n")
+            if ($lines[0] -notmatch '^VEYRA_PRESET_LIBRARY \d+$' -or $lines[1] -ne '"" 1') { throw "$($preset.Name) header" }
+            if ($lines[2] -notmatch '^"([^"]+)" "[^"]*" (.+)$') { throw "$($preset.Name) entry" }
+            if ($Matches[1] -ne $preset.BaseName) { throw "$($preset.Name) holds preset '$($Matches[1])'." }
+            $fields = $Matches[2].Trim().Split(' ')
+            $multiplier, $stage = [int]$fields[3], [int]$fields[9]
+            if ($multiplier -lt 1 -or $multiplier -gt 8 -or $stage -lt 2 -or $stage -gt 8) {
+              throw "$($preset.Name) multiplier $multiplier / stage $stage is out of range."
+            }
+            "{0}: x{1}, stage {2}" -f $preset.BaseName, $multiplier, $stage
+          }
       - name: Run the native Xbox protocol suite
         shell: pwsh
         run: |

@@ -38,6 +38,8 @@ env:
 
 jobs:
   build:
+    # Upstream's own check. The Xbox fork is covered by xbox-nvidia-checks.yml.
+    if: github.repository == 'Likely7/Veyra-NRVideo'
     runs-on: windows-2022
     timeout-minutes: 300
     permissions:
