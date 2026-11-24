@@ -3,7 +3,6 @@
 ## Unreleased
 
 - Builds without the CUDA driver headers compile again (upstream regression in `VfgBackend::capture`; also proposed upstream). The released 2.2.3 player is built with those headers and is unaffected.
-
 - `SHA256SUMS.txt` uses LF line endings, so `sha256sum -c` verifies the ZIP on any system. The 2.2.3 release asset was replaced with the LF copy; the checksum itself is unchanged.
 
 ## 2.2.3
