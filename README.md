@@ -2,7 +2,7 @@
 
 An Xbox-focused fork of Veyra for Windows 11 and NVIDIA GPUs. It adds a 1440p Remote Play option, keeps sessions alive past the four-hour token limit, fixes Xbox session teardown and controller forwarding, and retains Veyra’s NVIDIA frame generation and video enhancement. The current patch is built on official Veyra 2.2.1.
 
-**[Download the latest stable Xbox/NVIDIA patch](https://github.com/SenjuWoo/Veyra-NRVideo/releases/latest)** · [Upstream pull request #274](https://github.com/Likely7/Veyra-NRVideo/pull/274)
+**[Download the latest stable Xbox/NVIDIA patch](https://github.com/SenjuWoo/Veyra-NRVideo-Xbox/releases/latest)** · [Upstream pull request #274](https://github.com/Likely7/Veyra-NRVideo/pull/274)
 
 ## What this fork adds
 
@@ -22,7 +22,7 @@ The patch also updates the NVIDIA DLSS Super Resolution runtime. At native 1440p
 
 ## Get started
 
-1. Open [Releases](https://github.com/SenjuWoo/Veyra-NRVideo/releases), download the patch ZIP under **Assets**, and extract it.
+1. Open [Releases](https://github.com/SenjuWoo/Veyra-NRVideo-Xbox/releases), download the patch ZIP under **Assets**, and extract it.
 2. Double-click `Install.cmd`. Setup downloads and verifies the official Veyra NVIDIA package and the signed NVIDIA Super Resolution DLL, then creates a separate installation and opens Veyra.
 3. Enable Remote Play on your Xbox Series X|S and set its display resolution to 1440p or 4K UHD. In Veyra, open **Xbox**, select **1440p**, and connect. Press **Ctrl+Alt+Shift+S** to check the decoded resolution and bitrate. [Xbox Remote Play resolution requirements](https://news.xbox.com/en-us/2026/09/09/xbox-insiders-october-2026-console-features-3/)
 
