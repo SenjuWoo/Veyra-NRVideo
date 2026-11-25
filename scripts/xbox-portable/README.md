@@ -38,6 +38,6 @@ powershell -ExecutionPolicy Bypass -File Install-VeyraXbox.ps1 -CopySettingsFrom
 
 Sign in to Xbox once per Windows account; the sign-in is shared by every Veyra folder.
 
-This build includes Xbox and Moonlight streaming and the NVIDIA, Intel and AMD processing options of the official package. PS5 Remote Play and the DeckLink and Magewell native capture paths are in the original upstream build only. The version number stays above upstream's, so **Check for updates** reports this build as current; install the next patch from the releases page.
+This build includes Xbox and Moonlight streaming and the NVIDIA, Intel and AMD processing options of the official package. PS5 Remote Play and the DeckLink and Magewell native capture paths are in the original upstream build only. **Check for updates** looks at the official releases. While they are numbered below this build it reports this build as current. If it offers an official version above this one, applying it replaces this player and its Xbox changes; install the matching patch from the releases page instead.
 
 [Veyra Xbox/NVIDIA releases](https://github.com/SenjuWoo/Veyra-NRVideo/releases) · [Upstream PR](https://github.com/Likely7/Veyra-NRVideo/pull/274) · [Official base package](https://github.com/Likely7/Veyra-NRVideo/releases/tag/v2.2.1)
