@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Destination = (Join-Path $env:LOCALAPPDATA 'Programs/Veyra Xbox NVIDIA 2.2.3'),
+    [string]$Destination = (Join-Path $env:LOCALAPPDATA 'Programs/Veyra Xbox NVIDIA 2.2.4'),
     [string]$UpstreamZip,
     [string]$DlssSrDll,
     # Root of an earlier Veyra portable folder. Its presets, settings and LUTs are copied into the new one.
@@ -9,7 +9,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$version = '2.2.3'
+$version = '2.2.4'
 $base = '2.2.1'
 $destinationPath = [IO.Path]::GetFullPath($Destination)
 $parent = [IO.Path]::GetDirectoryName($destinationPath)

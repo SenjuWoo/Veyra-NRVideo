@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(veyra VERSION 2.2.3 LANGUAGES C CXX)
+project(veyra VERSION 2.2.4 LANGUAGES C CXX)
 
 # The Windows runtime needs the resource compiler; Linux does not have one.
 if(WIN32)
