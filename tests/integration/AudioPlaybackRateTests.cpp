@@ -40,7 +40,7 @@ int wmain(int argc,wchar_t** argv){
         const size_t begin=pcm.size()/4,end=pcm.size()*3/4;
         for(size_t i=1;i<pcm.size();++i){
             if(i>begin&&i<end&&pcm[i]>=0&&pcm[i-1]<0)++crossings;
-            energy+=pcm[i]*pcm[i];
+            energy+=double(pcm[i])*pcm[i];
         }
         const double hz=end>begin?48000.*crossings/(end-begin):0;
         const double duration=1000.*pcm.size()/48000.;

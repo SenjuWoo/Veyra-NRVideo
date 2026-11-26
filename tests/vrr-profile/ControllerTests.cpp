@@ -38,6 +38,8 @@ struct HeldFile {
 
 // No production driver adapter is linked into this test executable.
 namespace veyra::gfx {
+// Production constructor logs this once from a worker thread; the fake touches no driver.
+std::string nvidiaVsyncProfileDiagnostic(const std::wstring&) { return {}; }
 VrrProfileResult inspectVrrProfile(const std::wstring& executable) {
     const std::lock_guard lock(driver.mutex);
     ++driver.inspections; driver.state.executable = executable;

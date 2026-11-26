@@ -756,7 +756,7 @@ int meshLandmarksCase() {
         const double width = outlineWidth(outline(reference, 0));
         double sum = 0, worst = 0;
         for (int k = 0; k < 108; ++k) {
-            const double x = shapes[size_t(8 + k) * 2] * p.image.width, y = shapes[size_t(8 + k) * 2 + 1] * p.image.height;
+            const double x = double(shapes[size_t(8 + k) * 2]) * p.image.width, y = double(shapes[size_t(8 + k) * 2 + 1]) * p.image.height;
             const auto& r = reference[size_t(kOutline[k])];
             const double e = std::hypot(x - r[0], y - r[1]) / width;
             sum += e; worst = std::max(worst, e);

@@ -168,7 +168,7 @@ int main(){try{
         require(last.channels==expected.channels&&last.rate==expected.rate&&last.mask==expected.mask,"decoded channel layout/rate matches independent codec reference");
         require(!last.codec.empty(),"diagnostics name compressed input");
         for(float v:last.pcm)require(std::isfinite(v)&&std::abs(v)<1,"decoded PCM finite and bounded");
-        for(unsigned ch=0;ch<last.channels;++ch){double energy=0;for(size_t i=ch;i<last.pcm.size();i+=last.channels)energy+=last.pcm[i]*last.pcm[i];require(energy>0.001,"every decoded channel contains signal");}
+        for(unsigned ch=0;ch<last.channels;++ch){double energy=0;for(size_t i=ch;i<last.pcm.size();i+=last.channels)energy+=double(last.pcm[i])*last.pcm[i];require(energy>0.001,"every decoded channel contains signal");}
         require(std::any_of(outputs.begin()+before,outputs.end(),[](auto& o){return o.discontinuity;}),"format boundary resets history");
     };
     feedCodec(AV_CODEC_ID_AC3,0x3f,48000,1,1);
@@ -219,7 +219,7 @@ int main(){try{
         const auto& block=decoded.back();
         require(block.channels==6&&(block.mask&0x4)&&!block.codec.empty(),"router: 5.1 decoded with a front centre channel");
         const unsigned centre=unsigned(std::popcount(block.mask&0x3u)); // channels precede in speaker-mask order
-        double centreEnergy=0;for(size_t i=centre;i<block.pcm.size();i+=block.channels)centreEnergy+=block.pcm[i]*block.pcm[i];
+        double centreEnergy=0;for(size_t i=centre;i<block.pcm.size();i+=block.channels)centreEnergy+=double(block.pcm[i])*block.pcm[i];
         require(centreEnergy>0.001,"router: the centre channel (dialogue) carries its signal");
         held=0;size_t restoredAt=0;
         for(int n=0;n<150;++n,now+=.04){route(pcm,now);if(restores&&!restoredAt)restoredAt=size_t(n)+1;}

@@ -83,7 +83,7 @@
   window.VeyraApp = function (host, cfg = {}) {
     const st = Object.assign({
       page: 'min', chain: VY_DEFAULT_CHAIN(), preset: 'max', tab: 'quality', accent: 'orange', reduced: false,
-      status: ['ok', '已生效'], startPage: 'home', uid: Math.random().toString(36).slice(2, 7), open: new Set()
+      status: ['ok', '已生效'], startPage: 'home', uid: crypto.getRandomValues(new Uint32Array(1))[0].toString(36).slice(0, 5), open: new Set()
     }, cfg);
     st.open.add(st.chain[0].id); st.open.add(st.chain[1].id); st.open.add('nr');
     const root = h(`<div class="vy">

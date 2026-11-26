@@ -85,12 +85,12 @@ int run(unsigned w,unsigned h,bool both,bool occlusion){
         const bool clean=!occlusion||px<w/3-16||px>=w*2/3+16||py<h/3-16||py>=h*2/3+16;
         if(clean){errors.push_back(std::hypot(v[0]-8,v[1]));if(both){auto r=vectorAt(2,x,y);reverseErrors.push_back(std::hypot(r[0]+8,r[1]));}}
         if(!novel&&!clean)continue;
-        bool base=static_cast<uint8_t*>(ptr)[offsets[1]+y*cp+x]<32&&qx>=0&&qx<w-1&&qy>=0&&qy<h-1;
+        bool base=static_cast<uint8_t*>(ptr)[offsets[1]+size_t(y)*cp+x]<32&&qx>=0&&qx<w-1&&qy>=0&&qy<h-1;
         // Same encoded-luma endpoint test as product's rejection boundary.
         if(base){int ix=int(qx),iy=int(qy);float tx=qx-ix,ty=qy-iy;float a=texture(ix,iy)*(1-tx)+texture(ix+1,iy)*tx,b=texture(ix,iy+1)*(1-tx)+texture(ix+1,iy+1)*tx;
             float current=novel?128:texture(int(px)+8,int(py));base=std::abs(a*(1-ty)+b*ty-current)/255<.15f;}
         bool consistent=base;
-        if(both&&base){unsigned rx=std::min(unsigned(qx/4),gw-1),ry=std::min(unsigned(qy/4),gh-1);auto r=vectorAt(2,rx,ry);consistent=static_cast<uint8_t*>(ptr)[offsets[3]+ry*cp+rx]<32&&std::hypot(v[0]+r[0],v[1]+r[1])<1.5f;}
+        if(both&&base){unsigned rx=std::min(unsigned(qx/4),gw-1),ry=std::min(unsigned(qy/4),gh-1);auto r=vectorAt(2,rx,ry);consistent=static_cast<uint8_t*>(ptr)[offsets[3]+size_t(ry)*cp+rx]<32&&std::hypot(v[0]+r[0],v[1]+r[1])<1.5f;}
         if(novel){++novelTotal;novelBase+=base;novelConsistent+=consistent;}else{++goodTotal;goodBase+=base;goodConsistent+=consistent;}
     }
     D3D12_RANGE written{0,0};rb->Unmap(0,&written);

@@ -50,7 +50,7 @@ int wmain(int argc,wchar_t** argv){
             std::vector<float> samples(28800*6);const auto n=pipe.pull(samples.data(),28800,nullptr);ok=n==28800;
             for(unsigned speaker=0;speaker<6;++speaker){double active=0,leak=0;
                 for(unsigned i=speaker*4800;i<(speaker+1)*4800;++i)for(unsigned c=0;c<6;++c)
-                    if(c==speaker)active+=samples[i*6+c]*samples[i*6+c];else leak+=std::abs(samples[i*6+c]);
+                    if(c==speaker)active+=double(samples[i*6+c])*samples[i*6+c];else leak+=std::abs(samples[i*6+c]);
                 ok=ok&&active>90&&active<100&&leak<.00001;
                 std::cout<<"speaker="<<speaker<<" energy="<<active<<" otherChannelLeak="<<leak<<std::endl;
             }

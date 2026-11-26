@@ -213,7 +213,7 @@ std::vector<double> shrink(const sink::RgbaImage& img,unsigned factor,bool hdr){
     const unsigned w=img.width/factor,h=img.height/factor;std::vector<double> out(size_t(w)*h*3);
     for(unsigned y=0;y<h;++y)for(unsigned x=0;x<w;++x)for(unsigned c=0;c<3;++c){
         double sum=0;for(unsigned j=0;j<factor;++j)for(unsigned i=0;i<factor;++i){
-            const size_t p=(size_t(y*factor+j)*img.width+x*factor+i)*4+c;sum+=hdr?half(img,p):decode(img.pixels[p]);}
+            const size_t p=((size_t(y)*factor+j)*img.width+size_t(x)*factor+i)*4+c;sum+=hdr?half(img,p):decode(img.pixels[p]);}
         out[(size_t(y)*w+x)*3+c]=sum/(factor*factor);
     }
     return out;

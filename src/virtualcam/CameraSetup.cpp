@@ -117,7 +117,7 @@ static void uninstall(){
     for(const auto& entry:fs::directory_iterator(base)){
         if(!versionName(entry.path().filename().wstring())||!entry.is_directory())continue;secure(entry.path());
         for(const auto* name:{L"veyra-virtualcam64.dll",L"veyra-virtualcam32.dll",L"COPYING.GPL-2.0.txt",L"COPYING.LGPL-2.1.txt",L"ISC-Lain-Bailey.txt",L"install-result.json"}){
-            const auto file=entry.path()/name;if(!fs::exists(file))continue;secure(file);if(!DeleteFileW(file.c_str()))std::fwprintf(stderr,L"retained locked component: %ls (%lu)\n",file.c_str(),GetLastError());
+            const auto file=entry.path()/name;if(!fs::exists(file))continue;secure(file);if(!DeleteFileW(file.c_str()))std::fwprintf(stderr,L"retained locked component: %ls (%lu)\n",file.wstring().c_str(),static_cast<unsigned long>(GetLastError()));
         }
         RemoveDirectoryW(entry.path().c_str());
     }
@@ -130,7 +130,7 @@ int wmain(int argc,wchar_t** argv){
         require(argc==2,ERROR_INVALID_PARAMETER);const std::wstring mode=argv[1];
         if(mode==L"--verify"){
             require(hash(beside()/L"veyra-virtualcam64.dll")==CameraHash64&&hash(beside()/L"veyra-virtualcam32.dll")==CameraHash32,ERROR_CRC);
-            std::wprintf(L"Verified Veyra camera payload. Target: %ls\n",root().c_str());return 0;
+            std::wprintf(L"Verified Veyra camera payload. Target: %ls\n",root().wstring().c_str());return 0;
         }
         require(mode==L"--install"||mode==L"--uninstall",ERROR_INVALID_PARAMETER);require(elevated(),ERROR_ELEVATION_REQUIRED);
         if(mode==L"--install")install();else uninstall();

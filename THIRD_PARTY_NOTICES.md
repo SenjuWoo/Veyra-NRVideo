@@ -1151,8 +1151,9 @@ the published upstream releases plus the patch above. License texts: `licenses/x
 Movie preview uses SoundTouch 2.4.1, LGPL-2.1, upstream
 https://codeberg.org/soundtouch/soundtouch commit
 `0047e0b1ecfceb041348579119bf79b73a322a3a` (tag 2.4.1).
-Unmodified headers and SoundTouch processing sources are under
-`third_party/soundtouch/`; Veyra supplies only its build definition and origin
+Headers and SoundTouch processing sources are under
+`third_party/soundtouch/`; two files carry cast-only edits listed in
+`VEYRA_ORIGIN.md` (2026-11-26), and Veyra supplies its build definition and origin
 note. Copyright and COPYING.TXT are preserved. It is statically linked from
 these sources; the Veyra corresponding-source archive includes them and the
 build integration. Portable releases include the LGPL text and origin note.

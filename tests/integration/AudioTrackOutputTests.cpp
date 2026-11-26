@@ -22,7 +22,7 @@ bool verifyPcm(veyra::sink::AudioPipeline& audio,int stream,double frequency){
     std::vector<float> pcm(24000*channels);double pts=-1;
     const size_t frames=audio.pull(pcm.data(),24000,&pts);
     unsigned crossings=0;double energy=0;
-    for(size_t i=0;i<frames;++i){const float value=pcm[i*channels];energy+=value*value;if(i&&value>=0&&pcm[(i-1)*channels]<0)++crossings;}
+    for(size_t i=0;i<frames;++i){const float value=pcm[i*channels];energy+=double(value)*value;if(i&&value>=0&&pcm[(i-1)*channels]<0)++crossings;}
     const double measured=double(crossings)*48000/frames;
     const bool ok=frames==24000&&std::abs(pts-1000)<30&&energy/frames>.001&&std::abs(measured-frequency)<5;
     std::cout<<(ok?"PASS ":"FAIL ")<<"stream="<<stream<<" Hz="<<measured<<" ptsMs="<<pts<<" frames="<<frames<<std::endl;

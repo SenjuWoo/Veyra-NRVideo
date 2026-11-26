@@ -729,7 +729,7 @@ void TDStretch::acceptNewOverlapLength(int newOverlapLength)
     {
         delete[] pMidBufferUnaligned;
 
-        pMidBufferUnaligned = new SAMPLETYPE[overlapLength * channels + 16 / sizeof(SAMPLETYPE)];
+        pMidBufferUnaligned = new SAMPLETYPE[size_t(overlapLength) * channels + 16 / sizeof(SAMPLETYPE)];
         // ensure that 'pMidBuffer' is aligned to 16 byte boundary for efficiency
         pMidBuffer = (SAMPLETYPE *)SOUNDTOUCH_ALIGN_POINTER_16(pMidBufferUnaligned);
 
@@ -1062,7 +1062,7 @@ double TDStretch::calcCrossCorrAccumulate(const float *mixingPos, const float *c
     // cancel first normalizer tap from previous round
     for (i = 1; i <= channels; i ++)
     {
-        norm -= mixingPos[-i] * mixingPos[-i];
+        norm -= double(mixingPos[-i]) * mixingPos[-i];
     }
 
     // hint compiler autovectorization that loop length is divisible by 8
@@ -1078,7 +1078,7 @@ double TDStretch::calcCrossCorrAccumulate(const float *mixingPos, const float *c
     for (int j = 0; j < channels; j ++)
     {
         i --;
-        norm += mixingPos[i] * mixingPos[i];
+        norm += double(mixingPos[i]) * mixingPos[i];
     }
 
     return corr / sqrt((norm < 1e-9 ? 1.0 : norm));

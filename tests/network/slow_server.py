@@ -36,6 +36,12 @@ import threading
 import time
 from urllib.parse import unquote, urlparse
 
+SERVED_TYPES = (
+    'application/vnd.apple.mpegurl', 'video/mp2t', 'video/x-matroska', 'video/mp4', 'video/webm', 'video/quicktime',
+    'video/x-msvideo', 'audio/mpeg', 'audio/mp4', 'audio/aac', 'audio/flac', 'audio/ogg', 'audio/x-wav',
+    'application/json', 'text/plain',
+)
+
 TS = 188
 CHUNK = 64 * 1024
 
@@ -278,8 +284,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.end_headers()
                 return
             status = 206
-        ctype = {'.m3u8': 'application/vnd.apple.mpegurl', '.ts': 'video/mp2t', '.mkv': 'video/x-matroska'}.get(
-            os.path.splitext(full)[1].lower()) or mimetypes.guess_type(full)[0] or 'application/octet-stream'
+        guessed = {'.m3u8': 'application/vnd.apple.mpegurl', '.ts': 'video/mp2t', '.mkv': 'video/x-matroska'}.get(
+            os.path.splitext(full)[1].lower()) or mimetypes.guess_type(full)[0]
+        # Only a known media type reaches the header; the file name is client-chosen.
+        ctype = next((known for known in SERVED_TYPES if known == guessed), 'application/octet-stream')
         self.send_response(status)
         self.send_header('Content-Type', ctype)
         self.send_header('Accept-Ranges', 'bytes')
