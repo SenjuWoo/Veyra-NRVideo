@@ -46,6 +46,19 @@ std::string message(const std::string& target, const json& content) {
     return json{{"type", "Message"}, {"content", content.dump()}, {"id", uuid4()}, {"target", target}, {"cv", ""}}.dump();
 }
 
+// VEYRA_XBOX_LEGACY_PHYSICALITY=1 sends the old constant physicality bytes and one touch point, a
+// way back if a title handles the computed bits worse. Read once per process.
+PhysicalityMode physicalityMode() {
+    static const PhysicalityMode mode = [] {
+        char v[8]{};
+        const DWORD n = GetEnvironmentVariableA("VEYRA_XBOX_LEGACY_PHYSICALITY", v, sizeof(v));
+        const bool legacy = n > 0 && n < sizeof(v) && std::strcmp(v, "1") == 0;
+        if (legacy) log::info("xbox", "legacy gamepad physicality and one touch point (VEYRA_XBOX_LEGACY_PHYSICALITY=1)");
+        return legacy ? PhysicalityMode::Legacy : PhysicalityMode::Computed;
+    }();
+    return mode;
+}
+
 void logOnce() {
     static std::once_flag once;
     std::call_once(once, [] {
@@ -313,7 +326,7 @@ void WebRtcSession::onMessageChannel(const std::string& text) {
                 {"resolutionAlias", std::to_string(height)}}.dump());
         }
         if (input_ && input_->isOpen()) {
-            const auto report = clientMetadataReport(0, nowMs(), 1);
+            const auto report = clientMetadataReport(0, nowMs(), physicalityMode() == PhysicalityMode::Legacy ? 1 : 0);
             initialized &= sendBinary(input_,report.data(),report.size());
         }
         initialized &= sendClientConfig();
@@ -325,7 +338,12 @@ void WebRtcSession::onMessageChannel(const std::string& text) {
         const std::string target = j.value("target", "");
         const std::string id = j.value("id", "");
         log::info("xbox-message", target + " " + j.value("content", std::string()).substr(0, 300));
-        if (target == "/streaming/sessionLifetimeManagement/serverInitiatedDisconnect") {
+        if (target.rfind("/streaming/touchcontrols", 0) == 0) {
+            // No touch input here: decline touch layouts so the title keeps reading the gamepad, as
+            // XStreaming does (completion.cancel()); its fire-and-forget messages need no reply.
+            if (type == "TransactionStart")
+                sendMessageJson(json{{"type", "ReceiverCancel"}, {"id", id}, {"cv", ""}}.dump());
+        } else if (target == "/streaming/sessionLifetimeManagement/serverInitiatedDisconnect") {
             sendMessageJson(json{{"type", "TransactionComplete"}, {"content", "\"\""}, {"id", id}, {"cv", ""}}.dump());
             const auto content = json::parse(j.value("content", std::string()), nullptr, false);
             const std::string reason = content.is_object() && content.contains("reason") && content["reason"].is_string()
@@ -359,7 +377,7 @@ void WebRtcSession::onInputChannel(const uint8_t* data, size_t size) {
 void WebRtcSession::sendGamepad(const GamepadFrame& frame) {
     std::lock_guard lock(gate_->mutex);
     if(!gate_->open||!handshakeDone_)return;
-    const auto report=gamepadReport(++inputSequence_,nowMs(),{frame});
+    const auto report=gamepadReport(++inputSequence_,nowMs(),{frame},physicalityMode());
     sendBinary(input_,report.data(),report.size());
 }
 

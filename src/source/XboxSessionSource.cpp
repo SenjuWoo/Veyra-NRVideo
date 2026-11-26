@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Session flow after Greenlight's streammanager.ts / stream page (unknownskl/greenlight, MIT).
 #include "veyra/source/XboxSessionSource.h"
+#include "veyra/xbox/ArrivalGapTracker.h"
 #include "veyra/xbox/DisconnectPolicy.h"
 #include "veyra/xbox/VideoDecodeRecovery.h"
 
@@ -177,6 +178,7 @@ struct XboxSessionSource::Impl {
     bool rumbling = false;
 
     std::atomic<uint64_t> units{0}, decoded{0}, dropped{0}, errors{0};
+    xbox::ArrivalGapTracker arrivalGaps;        // video access unit spacing for the minute line
     std::mutex statsMutex;
     double decodeMs = 0;
     mutable Clock::time_point rateStart = Clock::now();
@@ -283,6 +285,7 @@ void XboxSessionSource::run(XboxConnectDesc desc, std::stop_token stop) {
         callbacks.video = [this](std::vector<uint8_t>&& unit, uint32_t rtp, int64_t arrival) {
             auto& q = *p_;
             ++q.units;
+            q.arrivalGaps.observe(Clock::now());
             std::lock_guard lock(q.queueMutex);
             // Latency first: keep only a short backlog; a decoder that falls behind drops the oldest.
             const auto lost = xbox::trimVideoInputs(q.queue, 8);
@@ -394,32 +397,40 @@ void XboxSessionSource::run(XboxConnectDesc desc, std::stop_token stop) {
                     { std::lock_guard lock(q.statsMutex); decodeMs = q.decodeMs; }
                     uint32_t width = 0, height = 0;
                     { std::lock_guard lock(mutex_); width = stats_.width; height = stats_.height; }
+                    const xbox::ArrivalGapTracker::Window gaps = q.arrivalGaps.takeWindow();
                     log::info("xbox-stats", std::format(
                         "received={:.1f}fps decoded={:.1f}fps video={:.1f}Mbps dropped={} decodeErrors={} keyframeRequests={} "
-                        "rttMs={:.1f} decodeMs={:.2f} size={}x{} hardware={}",
+                        "rttMs={:.1f} decodeMs={:.2f} size={}x{} hardware={} maxGapMs={:.1f} lateUnits={}",
                         double(units - healthUnits) / seconds, double(decoded - healthDecoded) / seconds,
                         double(rtc.videoBytes - healthRtc.videoBytes) * 8.0 / seconds / 1e6, dropped - healthDropped,
                         errors - healthErrors, rtc.keyframeRequests - healthRtc.keyframeRequests, rtc.rttMs, decodeMs,
-                        width, height, q.hardwareDecodeStatus.load(std::memory_order_relaxed)));
+                        width, height, q.hardwareDecodeStatus.load(std::memory_order_relaxed), gaps.maxGapMs, gaps.lateUnits));
                     healthAt = now; healthUnits = units; healthDecoded = decoded; healthDropped = dropped;
                     healthErrors = errors; healthRtc = rtc;
                 }
                 if (Clock::now() < next) continue;
                 next = Clock::now() + std::chrono::seconds(30);
-                try {
-                    // Five minutes ahead of expiry, so no keepalive goes out with a dead token.
-                    const int64_t now = unixNow(), expires = q.tokenExpiresAt.load();
-                    const bool testDue = testRenewAt && !testRenewed && now >= testRenewAt;
-                    if (((expires > 0 && now >= expires - 300) || testDue) && now - renewedAt >= 120) {
-                        testRenewed = testRenewed || testDue;
-                        renewedAt = now;
+                // Five minutes ahead of expiry, so no keepalive goes out with a dead token.
+                const int64_t now = unixNow(), expires = q.tokenExpiresAt.load();
+                const bool testDue = testRenewAt && !testRenewed && now >= testRenewAt;
+                if (((expires > 0 && now >= expires - 300) || testDue) && now - renewedAt >= 120) {
+                    testRenewed = testRenewed || testDue;
+                    renewedAt = now;
+                    // A failed renewal must not cost this round's keepalive, which still goes out with
+                    // the current token; the next attempt comes 120 s later. Renewal errors stay out of
+                    // the keepalive handlers below, where a 404 ends the session.
+                    try {
                         const xbox::StreamingAccess renewed = q.desc.account->renewStreamingAccess(q.api->token());
                         q.api->setToken(renewed.gsToken);
                         q.tokenExpiresAt = renewed.expiresAt;
                         q.tokenRenewed = true;
                         log::info("xbox", std::format("streaming token renewed {} s before expiry; valid for {} s",
                             expires - now, renewed.expiresAt - now));
+                    } catch (const std::exception& e) {
+                        log::warn("xbox", std::string("token renewal failed: ") + e.what());
                     }
+                }
+                try {
                     q.api->keepalive(q.sessionId);
                     if (q.tokenRenewed.exchange(false)) log::info("xbox", "keepalive accepted with the renewed streaming token");
                 } catch (const xbox::ServiceError& e) {

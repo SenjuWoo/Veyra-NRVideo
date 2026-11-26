@@ -25,6 +25,22 @@ enum GamepadButton : uint16_t {
     BtnLeftShoulder = 4096, BtnRightShoulder = 8192, BtnLeftThumb = 16384, BtnRightThumb = 32768,
 };
 
+// Which inputs are in use, sent with every pad. XStreaming computes it per frame since abc02ff
+// ("fix: some games input issue"). Bit values from Geocld/XStreaming src/webrtc/Packet/index.ts
+// (GamepadInputPhysicality); Misc has no button in GamepadFrame.
+enum GamepadPhysicality : uint32_t {
+    PhysDPadUp = 0x1, PhysDPadDown = 0x2, PhysDPadLeft = 0x4, PhysDPadRight = 0x8,
+    PhysMenu = 0x10, PhysView = 0x20, PhysLeftThumb = 0x40, PhysRightThumb = 0x80,
+    PhysLeftShoulder = 0x100, PhysRightShoulder = 0x200, PhysNexus = 0x400, PhysMisc = 0x800,
+    PhysA = 0x1000, PhysB = 0x2000, PhysX = 0x4000, PhysY = 0x8000,
+    PhysLeftTrigger = 0x10000, PhysRightTrigger = 0x20000,
+    PhysLeftThumbX = 0x40000, PhysLeftThumbY = 0x80000, PhysRightThumbX = 0x100000, PhysRightThumbY = 0x200000,
+};
+
+// Computed: physicality from the inputs in use, virtual physicality 0 (XStreaming abc02ff).
+// Legacy: the constants of unknownskl's player (physicality LE 1, virtual physicality big-endian 1).
+enum class PhysicalityMode : uint8_t { Computed, Legacy };
+
 struct GamepadFrame {
     uint8_t index = 0;
     uint16_t buttons = 0;
@@ -49,7 +65,9 @@ inline uint32_t get32(const uint8_t* p) { return uint32_t(p[0]) | (uint32_t(p[1]
 }
 
 // Header: report type (u16), sequence (u32), timestamp in ms (f64) = 14 bytes.
-inline std::vector<uint8_t> clientMetadataReport(uint32_t sequence, double timeMs, uint8_t maxTouchPoints = 1) {
+// No touch points by default, as XStreaming sends unless its touch overlay is on; touch-control
+// layouts are declined in WebRtcSession.
+inline std::vector<uint8_t> clientMetadataReport(uint32_t sequence, double timeMs, uint8_t maxTouchPoints = 0) {
     std::vector<uint8_t> b(15, 0);
     detail::put16(b, 0, ReportClientMetadata);
     detail::put32(b, 2, sequence);
@@ -72,10 +90,30 @@ inline std::vector<uint8_t> videoFeedbackReport(uint32_t sequence,double timeMs,
     return b;
 }
 
+// XStreaming's _calculateGamepadPhysicality: any pressed button or non-zero trigger sets its bit; a
+// stick off centre sets both of its axis bits (XStreaming's deadzone argument defaults to 0 and no
+// caller passes one).
+inline uint32_t gamepadPhysicality(const GamepadFrame& p) {
+    struct Pair { uint16_t button; uint32_t bit; };
+    static constexpr Pair map[] = {
+        {BtnUp, PhysDPadUp}, {BtnDown, PhysDPadDown}, {BtnLeft, PhysDPadLeft}, {BtnRight, PhysDPadRight},
+        {BtnMenu, PhysMenu}, {BtnView, PhysView}, {BtnLeftThumb, PhysLeftThumb}, {BtnRightThumb, PhysRightThumb},
+        {BtnLeftShoulder, PhysLeftShoulder}, {BtnRightShoulder, PhysRightShoulder}, {BtnNexus, PhysNexus},
+        {BtnA, PhysA}, {BtnB, PhysB}, {BtnX, PhysX}, {BtnY, PhysY},
+    };
+    uint32_t bits = 0;
+    for (const auto& m : map) if (p.buttons & m.button) bits |= m.bit;
+    if (p.leftTrigger) bits |= PhysLeftTrigger;
+    if (p.rightTrigger) bits |= PhysRightTrigger;
+    if (p.leftX || p.leftY) bits |= PhysLeftThumbX | PhysLeftThumbY;
+    if (p.rightX || p.rightY) bits |= PhysRightThumbX | PhysRightThumbY;
+    return bits;
+}
+
 // One report with up to a few gamepads: count (u8), then per pad 23 bytes: index, buttons, 4 axes,
-// 2 triggers, physicality (u32 LE 1) and virtual physicality (u32 written big-endian 1, as the
-// reference client does).
-inline std::vector<uint8_t> gamepadReport(uint32_t sequence, double timeMs, const std::vector<GamepadFrame>& pads) {
+// 2 triggers, physicality (u32) and virtual physicality (u32), filled as PhysicalityMode says.
+inline std::vector<uint8_t> gamepadReport(uint32_t sequence, double timeMs, const std::vector<GamepadFrame>& pads,
+                                          PhysicalityMode mode = PhysicalityMode::Computed) {
     std::vector<uint8_t> b(14 + 1 + 23 * pads.size(), 0);
     detail::put16(b, 0, ReportGamepad);
     detail::put32(b, 2, sequence);
@@ -91,8 +129,13 @@ inline std::vector<uint8_t> gamepadReport(uint32_t sequence, double timeMs, cons
         detail::put16(b, at + 8, uint16_t(p.rightY));
         detail::put16(b, at + 10, p.leftTrigger);
         detail::put16(b, at + 12, p.rightTrigger);
-        detail::put32(b, at + 14, 1);
-        b[at + 18] = 0; b[at + 19] = 0; b[at + 20] = 0; b[at + 21] = 1;   // big-endian 1
+        if (mode == PhysicalityMode::Legacy) {
+            detail::put32(b, at + 14, 1);
+            b[at + 18] = 0; b[at + 19] = 0; b[at + 20] = 0; b[at + 21] = 1;   // big-endian 1
+        } else {
+            detail::put32(b, at + 14, gamepadPhysicality(p));
+            detail::put32(b, at + 18, 0);
+        }
         at += 22;
     }
     return b;

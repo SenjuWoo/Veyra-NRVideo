@@ -25,6 +25,7 @@
 #include <thread>
 
 #include "veyra/xbox/Account.h"
+#include "veyra/xbox/ArrivalGapTracker.h"
 #include "veyra/xbox/Protocol.h"
 #include "veyra/xbox/StreamApi.h"
 #include "veyra/xbox/WebRtcSession.h"
@@ -38,6 +39,12 @@ using json = nlohmann::json;
 namespace {
 
 int g_checks = 0, g_failures = 0;
+// The session reads VEYRA_XBOX_LEGACY_PHYSICALITY; the loopback checks expect what it will send.
+const bool g_legacyPhysicality = [] {
+    char v[8]{};
+    const DWORD n = GetEnvironmentVariableA("VEYRA_XBOX_LEGACY_PHYSICALITY", v, sizeof(v));
+    return n > 0 && n < sizeof(v) && std::strcmp(v, "1") == 0;
+}();
 void check(bool ok, const char* what) {
     ++g_checks;
     if (!ok) { ++g_failures; std::printf("FAIL %s\n", what); }
@@ -84,8 +91,46 @@ void protocolTests() {
     check(r[16] == uint8_t((BtnA | BtnMenu | BtnNexus) & 0xFF) && r[17] == 0, "button mask little-endian");
     check(r[18] == 0xE8 && r[19] == 0x03 && r[20] == 0xFE && r[21] == 0xFF, "left stick X/Y as signed little-endian");
     check(r[26] == 0xFF && r[27] == 0xFF && r[28] == 0x01 && r[29] == 0x01, "triggers 0..65535");
-    check(r[30] == 1 && r[31] == 0 && r[32] == 0 && r[33] == 0 && r[34] == 0 && r[35] == 0 && r[36] == 0 && r[37] == 1,
-          "physicality LE 1 then virtual physicality written big-endian, as the reference client");
+    const uint32_t phys = PhysA | PhysMenu | PhysNexus | PhysLeftTrigger | PhysRightTrigger |
+                          PhysLeftThumbX | PhysLeftThumbY | PhysRightThumbX | PhysRightThumbY;
+    check(detail::get32(r.data() + 30) == phys, "physicality: little-endian bits for every button, trigger and stick in use");
+    check(detail::get32(r.data() + 34) == 0, "virtual physicality 0, little-endian");
+    check(clientMetadataReport(0, 0)[14] == 0, "client metadata defaults to no touch points");
+
+    const auto legacy = gamepadReport(7, 0, {pad}, PhysicalityMode::Legacy);
+    check(legacy.size() == r.size() && std::equal(legacy.begin(), legacy.begin() + 30, r.begin()),
+          "legacy mode changes only the physicality fields");
+    check(legacy[30] == 1 && legacy[31] == 0 && legacy[32] == 0 && legacy[33] == 0 &&
+          legacy[34] == 0 && legacy[35] == 0 && legacy[36] == 0 && legacy[37] == 1,
+          "legacy mode: physicality LE 1 then virtual physicality big-endian 1, the old constants");
+    check(clientMetadataReport(0, 0, 1)[14] == 1, "legacy client metadata keeps one touch point");
+
+    check(gamepadPhysicality(GamepadFrame{}) == 0, "an idle pad reports no physicality");
+    {
+        const auto idle = gamepadReport(1, 0, {GamepadFrame{}});
+        check(detail::get32(idle.data() + 30) == 0 && detail::get32(idle.data() + 34) == 0, "an idle pad sends physicality 0 and virtual 0");
+    }
+    const auto physOf = [](auto edit) { GamepadFrame f; edit(f); return gamepadPhysicality(f); };
+    struct ButtonBit { uint16_t button; uint32_t bit; };
+    const ButtonBit buttonBits[] = {
+        {BtnUp, PhysDPadUp}, {BtnDown, PhysDPadDown}, {BtnLeft, PhysDPadLeft}, {BtnRight, PhysDPadRight},
+        {BtnMenu, PhysMenu}, {BtnView, PhysView}, {BtnLeftThumb, PhysLeftThumb}, {BtnRightThumb, PhysRightThumb},
+        {BtnLeftShoulder, PhysLeftShoulder}, {BtnRightShoulder, PhysRightShoulder}, {BtnNexus, PhysNexus},
+        {BtnA, PhysA}, {BtnB, PhysB}, {BtnX, PhysX}, {BtnY, PhysY},
+    };
+    bool buttonsOk = true;
+    for (const auto& bb : buttonBits) buttonsOk = buttonsOk && physOf([&](GamepadFrame& f) { f.buttons = bb.button; }) == bb.bit;
+    check(buttonsOk, "each button sets exactly its own physicality bit");
+    check(PhysDPadUp == 0x1 && PhysNexus == 0x400 && PhysMisc == 0x800 && PhysA == 0x1000 && PhysY == 0x8000 &&
+          PhysLeftTrigger == 0x10000 && PhysRightThumbY == 0x200000, "physicality bit values match XStreaming's GamepadInputPhysicality");
+    check(physOf([](GamepadFrame& f) { f.leftTrigger = 1; }) == PhysLeftTrigger &&
+          physOf([](GamepadFrame& f) { f.rightTrigger = 65535; }) == PhysRightTrigger, "each trigger sets its bit once it moves");
+    check(physOf([](GamepadFrame& f) { f.leftX = -1; }) == (PhysLeftThumbX | PhysLeftThumbY) &&
+          physOf([](GamepadFrame& f) { f.leftY = 300; }) == (PhysLeftThumbX | PhysLeftThumbY),
+          "the left stick off centre on either axis sets both left axis bits");
+    check(physOf([](GamepadFrame& f) { f.rightY = -32767; }) == (PhysRightThumbX | PhysRightThumbY) &&
+          physOf([](GamepadFrame& f) { f.rightX = 5; }) == (PhysRightThumbX | PhysRightThumbY),
+          "the right stick off centre on either axis sets both right axis bits");
 
     veyra::remoteplay::ControllerState s;
     s.inputActive = true;
@@ -499,6 +544,8 @@ void webrtcTests(StreamResolution resolution) {
     {
         std::lock_guard l(console.mutex);
         check(!console.reports.empty() && console.reports[0].size() == 15 && console.reports[0][0] == 8, "first input report is client metadata");
+        check(!console.reports.empty() && console.reports[0].size() == 15 && console.reports[0][14] == (g_legacyPhysicality ? 1 : 0),
+              "the session reports no touch points (one in legacy mode)");
     }
     check(console.waitFor([&] {
         for (const auto& packet : console.messages) if (packet.value("target", "") == "/streaming/characteristics/dimensionschanged") return true;
@@ -526,7 +573,7 @@ void webrtcTests(StreamResolution resolution) {
     {
         std::lock_guard l(console.mutex);
         const auto r = console.reports.empty() ? std::vector<uint8_t>{} : console.reports.back();
-        const auto expected = gamepadReport(1, 0, {pad});
+        const auto expected = gamepadReport(1, 0, {pad}, g_legacyPhysicality ? PhysicalityMode::Legacy : PhysicalityMode::Computed);
         check(r.size() == expected.size() && std::equal(r.begin() + 14, r.end(), expected.begin() + 14) && r[0] == 2, "gamepad report bytes as built");
     }
 
@@ -598,6 +645,19 @@ void webrtcTests(StreamResolution resolution) {
           detail::get32(encoded.data()+23)==102&&detail::get32(encoded.data()+27)==103&&
           detail::get32(encoded.data()+31)==104&&detail::get32(encoded.data()+35)==1234&&
           detail::get32(encoded.data()+39)==1234,"frame feedback matches Greenlight's seven-field wire format");
+    // A touch-controls layout offer is declined, never completed.
+    console.message->send(json{{"type","TransactionStart"},{"target","/streaming/touchcontrols/test"},{"id","touch-test"},{"content","{}"},{"cv",""}}.dump());
+    check(console.waitFor([&]{for(const auto& reply:console.messages)if(reply.value("id","")=="touch-test")return true;return false;}),
+          "a touch-controls transaction gets a reply");
+    {
+        std::lock_guard lock(console.mutex);
+        int cancels=0,completes=0;
+        for(const auto& reply:console.messages)if(reply.value("id","")=="touch-test"){
+            if(reply.value("type","")=="ReceiverCancel")++cancels;
+            if(reply.value("type","")=="TransactionComplete")++completes;
+        }
+        check(cancels==1&&completes==0,"touch-controls transactions are answered with one ReceiverCancel and no TransactionComplete");
+    }
     // Exercise real transport shutdown while the caller sends input/keyframe
     console.message->send(json{{"type","TransactionStart"},{"target","/streaming/sessionLifetimeManagement/serverInitiatedDisconnect"},{"id","shutdown-test"},{"content",json{{"reason","KickForServerShutdown"}}.dump()}}.dump());
     for(unsigned i=0;i<100;++i){ {std::lock_guard l(m);if(!endedReason.empty())break;} std::this_thread::sleep_for(std::chrono::milliseconds(10)); }
@@ -647,6 +707,34 @@ int main(int argc, char** argv) {
         queue.pop_front();
         check(trimVideoInputs(queue,8)==0&&!queue.front().inputLoss,
               "continuous queued units do not invent extra resets");
+    }
+    {
+        using namespace std::chrono_literals;
+        ArrivalGapTracker gaps;
+        const ArrivalGapTracker::Clock::time_point t0{};
+        auto w = gaps.takeWindow();
+        check(w.maxGapMs == 0 && w.lateUnits == 0, "arrival gaps: a window with no units reports 0/0");
+        gaps.observe(t0);
+        w = gaps.takeWindow();
+        check(w.maxGapMs == 0 && w.lateUnits == 0, "arrival gaps: the first unit gives no gap");
+        gaps.observe(t0 + 16ms);
+        gaps.observe(t0 + 56ms);
+        w = gaps.takeWindow();
+        check(w.maxGapMs == 40 && w.lateUnits == 1, "arrival gaps: 16 ms and 40 ms give max 40 and one late interval");
+        w = gaps.takeWindow();
+        check(w.maxGapMs == 0 && w.lateUnits == 0, "arrival gaps: takeWindow resets max and late count");
+        gaps.observe(t0 + 81ms);
+        w = gaps.takeWindow();
+        check(w.maxGapMs == 25 && w.lateUnits == 0, "arrival gaps: exactly 25 ms is not late");
+        gaps.observe(t0 + 181ms);
+        w = gaps.takeWindow();
+        check(w.maxGapMs == 100 && w.lateUnits == 1, "arrival gaps: a stall across a window boundary lands in the window where units resume");
+        std::thread producer([&] { for (int i = 1; i <= 1000; ++i) gaps.observe(t0 + 181ms + i * 1ms); });
+        uint64_t late = 0;
+        for (int i = 0; i < 200; ++i) late += gaps.takeWindow().lateUnits;
+        producer.join();
+        late += gaps.takeWindow().lateUnits;
+        check(late == 0, "arrival gaps: concurrent observe and takeWindow stay consistent");
     }
     check(reconnectableDisconnect("KickForServerShutdown"), "server service restart is recoverable");
     check(reconnectableDisconnect("connection lost"), "transport loss is recoverable");

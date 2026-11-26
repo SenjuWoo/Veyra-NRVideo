@@ -10,6 +10,9 @@
 - The G-SYNC profile check links again: its test fakes the VSync diagnostic that the controller now calls (an upstream test gap).
 - GitHub Actions: the six action versions are bumped to their current releases by Dependabot (commit pins checked against the tags). The upstream star-history workflow, which writes to the repository with a third-party action, is limited to the upstream repository.
 - README: merged upstream's warning about the `veyra-nrv[.]com` impersonation site and added the fork's download guidance.
+- Xbox stream health: the once-a-minute `[xbox-stats]` line also reports `maxGapMs` (longest gap between video units) and `lateUnits` (gaps over 25 ms), so a hitch can be told from a network or decode problem.
+- Xbox keepalive: a failed streaming-token renewal no longer skips that round's keepalive; the renewal retries 120 s later.
+- Xbox gamepad (only when a PC controller is forwarded): input physicality is computed from the inputs in use, virtual physicality is 0 and no touch points are advertised, matching XStreaming; touch-control layouts the console offers are declined. Set `VEYRA_XBOX_LEGACY_PHYSICALITY=1` to restore the previous constants. Not yet verified in a game.
 
 ## 2.2.3
 
