@@ -338,9 +338,11 @@ void WebRtcSession::onMessageChannel(const std::string& text) {
         const std::string target = j.value("target", "");
         const std::string id = j.value("id", "");
         log::info("xbox-message", target + " " + j.value("content", std::string()).substr(0, 300));
-        if (target.rfind("/streaming/touchcontrols", 0) == 0) {
+        if (target.rfind("/streaming/touchcontrols", 0) == 0 && physicalityMode() == PhysicalityMode::Computed) {
             // No touch input here: decline touch layouts so the title keeps reading the gamepad, as
             // XStreaming does (completion.cancel()); its fire-and-forget messages need no reply.
+            // "cv" stays empty like every other reply here (XStreaming increments the incoming cv).
+            // Legacy mode falls through to the old TransactionComplete below.
             if (type == "TransactionStart")
                 sendMessageJson(json{{"type", "ReceiverCancel"}, {"id", id}, {"cv", ""}}.dump());
         } else if (target == "/streaming/sessionLifetimeManagement/serverInitiatedDisconnect") {

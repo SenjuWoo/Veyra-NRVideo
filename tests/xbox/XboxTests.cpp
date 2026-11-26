@@ -11,6 +11,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <cstring>
 #include <algorithm>
 #include <deque>
 #include <fstream>
@@ -656,7 +657,13 @@ void webrtcTests(StreamResolution resolution) {
             if(reply.value("type","")=="ReceiverCancel")++cancels;
             if(reply.value("type","")=="TransactionComplete")++completes;
         }
-        check(cancels==1&&completes==0,"touch-controls transactions are answered with one ReceiverCancel and no TransactionComplete");
+        // The legacy switch (read once per process) restores the old TransactionComplete reply.
+        char legacyEnv[8]{};
+        const DWORD n=GetEnvironmentVariableA("VEYRA_XBOX_LEGACY_PHYSICALITY",legacyEnv,sizeof(legacyEnv));
+        if(n>0&&n<sizeof(legacyEnv)&&std::strcmp(legacyEnv,"1")==0)
+            check(cancels==0&&completes==1,"legacy mode completes touch-controls transactions as before");
+        else
+            check(cancels==1&&completes==0,"touch-controls transactions are answered with one ReceiverCancel and no TransactionComplete");
     }
     // Exercise real transport shutdown while the caller sends input/keyframe
     console.message->send(json{{"type","TransactionStart"},{"target","/streaming/sessionLifetimeManagement/serverInitiatedDisconnect"},{"id","shutdown-test"},{"content",json{{"reason","KickForServerShutdown"}}.dump()}}.dump());
