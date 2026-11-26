@@ -2,7 +2,7 @@
 
 ## 2.2.4
 
-- Presets: four measured GTA VI presets replace V9 and Smooth 120. `GTA 6 - Smooth 240` (VFG Medium 8×, the new default), `GTA 6 - Balanced 120` (Medium 4×), `GTA 6 - Clean 60` (High 2×) and `GTA 6 - Native Response`. DLAA is off in all of them (no visible gain on a compressed 1440p stream, and it costs frame-generation time). Super resolution stays off because the stream is already native 1440p. Capture-to-present latency measured the same at 2×, 4× and 8×.
+- Presets: six measured GTA VI presets replace V9 and Smooth 120. `GTA 6 - Smooth 240` (VFG Medium 8×, the new default), `GTA 6 - Balanced 120` (Medium 4×), `GTA 6 - Clean 60` (High 2×), `GTA 6 - High Quality 90` (High 3× with NR off), `GTA 6 - Smooth 240 HDR Input` (RTX HDR off for HDR capture cards) and `GTA 6 - Native Response`. DLAA is off in all of them (no visible gain on a compressed 1440p stream, and it costs frame-generation time). Super resolution stays off because the stream is already native 1440p. Capture-to-present latency measured the same at 2×, 4× and 8×.
 - The guide explains why VFG High stops above 2× at 1440p: generation would take longer than the 33 ms frame budget, so Veyra shows the real 30 fps instead.
 
 - Builds without the CUDA driver headers compile again (upstream regression in `VfgBackend::capture`; also proposed upstream). The released 2.2.3 player is built with those headers and is unaffected.

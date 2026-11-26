@@ -18,16 +18,18 @@ The log is `logs/veyra-qml.log` in the installation folder. If the service close
 
 ## Example presets
 
-Setup copies four presets for a 30 fps game streamed at 60 fps to `presets/` in the installation folder. Import them from the preset menu, then set `GTA 6 - Smooth 240` as the default so it loads at start.
+Setup copies six presets for a 30 fps game streamed at 60 fps to `presets/` in the installation folder. Import them from the preset menu, then set `GTA 6 - Smooth 240` as the default so it loads at start.
 
 | Preset | Frame generation | Cadence | Use it for |
 | --- | --- | --- | --- |
 | `GTA 6 - Smooth 240` | NVIDIA VFG Medium 8× (240 fps) | 60→30 (Adaptive Dedup) | The default on a high-refresh G-SYNC or FreeSync display. |
 | `GTA 6 - Balanced 120` | NVIDIA VFG Medium 4× (120 fps) | 60→30 (Adaptive Dedup) | More GPU headroom: recording, a slower GPU, or a 120/144 Hz display. |
 | `GTA 6 - Clean 60` | NVIDIA VFG High 2× (60 fps) | 60→30 (Adaptive Dedup) | The cleanest generated frames, or a 60 fps capture canvas. |
+| `GTA 6 - High Quality 90` | NVIDIA VFG High 3× (90 fps) | 60→30 (Adaptive Dedup) | High-quality generation above 60 fps. RTX Video noise reduction is off to make room (27 ms P95 of 33). |
 | `GTA 6 - Native Response` | Off | Transport | The shortest processing path, for comparing aiming and steering feel. |
+| `GTA 6 - Smooth 240 HDR Input` | NVIDIA VFG Medium 8× (240 fps) | 60→30 (Adaptive Dedup) | An HDR capture-card source: RTX Video HDR off because the input is already HDR. Xbox Remote Play is SDR, so keep Smooth 240 there. |
 
-All four keep native 1440p, RTX Video noise reduction and RTX Video HDR. Super resolution and DLAA are off: the console already sends 2560×1440, so there is nothing to upscale, and anti-aliasing a compressed stream changes little while costing frame-generation time.
+All keep native 1440p. RTX Video noise reduction and RTX Video HDR are on unless the table says otherwise. Super resolution and DLAA are off: the console already sends 2560×1440, so there is nothing to upscale, and anti-aliasing a compressed stream changes little while costing frame-generation time.
 
 They were measured live on an RTX 4080 SUPER with a 2560×1440 280 Hz G-SYNC Compatible display. Generation cost per 30 fps frame pair, with a 33 ms budget, was 27 ms (P95) at Medium 8×, 18 ms at Medium 4× and 23 ms at High 2×. Capture-to-present latency was the same in all three, about 45 ms (P95), so a higher multiplier adds smoothness, not delay. VFG High above 2× costs 34 to 86 ms at 1440p, more than the budget, so Veyra skips those generated frames and shows the real 30 fps; use Medium for 3× and above. Lower the multiplier on a slower GPU. If the reticle or minimap wobbles in generated frames, turn on **Crosshair and HUD protection** and **Auto HUD lock** in the frame generation panel.
 
