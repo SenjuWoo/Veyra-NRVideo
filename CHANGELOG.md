@@ -5,6 +5,7 @@
 - Builds without the CUDA driver headers compile again (upstream regression in `VfgBackend::capture`; also proposed upstream). The released 2.2.3 player is built with those headers and is unaffected.
 - The setup guide explains that an official release numbered above the fork, applied from Check for updates, replaces the fork's player.
 - `SHA256SUMS.txt` uses LF line endings, so `sha256sum -c` verifies the ZIP on any system. The 2.2.3 release asset was replaced with the LF copy; the checksum itself is unchanged.
+- Repository: Dependabot checks the GitHub Actions versions weekly (`.github/dependabot.yml`). No workflow changes.
 
 ## 2.2.3
 

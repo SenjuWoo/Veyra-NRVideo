@@ -1,0 +1,13 @@
+version: 2
+
+updates:
+  # GitHub Actions only. The C++ dependencies come from vcpkg's builtin-baseline
+  # and pinned SDK fetch scripts, which Dependabot does not manage.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns: ["*"]
