@@ -2,6 +2,9 @@
 
 An Xbox-focused fork of Veyra for Windows 11 and NVIDIA GPUs. It adds a 1440p Remote Play option, keeps sessions alive past the four-hour token limit, fixes Xbox session teardown and controller forwarding, and retains Veyra’s NVIDIA frame generation and video enhancement. The current patch is built on official Veyra 2.2.1.
 
+> [!WARNING]
+> **Download security alert.** `veyra-nrv[.]com` impersonates Veyra, and users report a trojanized launcher from that site. Download this patch only from this repository's [Releases](https://github.com/SenjuWoo/Veyra-NRVideo-Xbox/releases), and the official Veyra builds only from [Likely7/Veyra-NRVideo Releases](https://github.com/Likely7/Veyra-NRVideo/releases). Compare the file's SHA-256 with `SHA256SUMS.txt` from the same release before running anything. Setup verifies the official package and the NVIDIA DLL against pinned hashes.
+
 **[Download the latest stable Xbox/NVIDIA patch](https://github.com/SenjuWoo/Veyra-NRVideo-Xbox/releases/latest)** · [Upstream pull request #274](https://github.com/Likely7/Veyra-NRVideo/pull/274)
 
 ## What this fork adds
