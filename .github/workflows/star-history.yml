@@ -14,6 +14,8 @@ permissions:
 
 jobs:
   star-history:
+    # The chart belongs to the upstream project; this fork does not publish one.
+    if: github.repository == 'Likely7/Veyra-NRVideo'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1

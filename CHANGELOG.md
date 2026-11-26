@@ -8,6 +8,7 @@
 - Repository: Dependabot checks the GitHub Actions versions weekly (`.github/dependabot.yml`). No workflow changes.
 - Security: the 22 CodeQL findings are fixed in the source (wide index and energy arithmetic in the player, tests and the vendored SoundTouch, wide-string formats in the virtual camera setup, a bounded content type in the test server, a random prototype id). Casts only; the player's behaviour is unchanged. `main` is branch-protected (no force push or deletion).
 - The G-SYNC profile check links again: its test fakes the VSync diagnostic that the controller now calls (an upstream test gap).
+- GitHub Actions: the six action versions are bumped to their current releases by Dependabot (commit pins checked against the tags). The upstream star-history workflow, which writes to the repository with a third-party action, is limited to the upstream repository.
 - README: merged upstream's warning about the `veyra-nrv[.]com` impersonation site and added the fork's download guidance.
 
 ## 2.2.3
