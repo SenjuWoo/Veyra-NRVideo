@@ -3510,9 +3510,9 @@ bool EnhanceGraph::process(const AVFrame* frame, double ptsMs, bool reset, Frame
             sample.push_back(sampleLuma[ptrdiff_t(y*srcH_/36)*samplePitch+(x*srcW_/64)*sampleBytes+(sampleBytes-1)]);
         analyzeLuma(sample);
         if(!directUpload){for (uint32_t y = 0; y < srcH_; ++y)
-            std::memcpy(mappedLuma_[parity] + size_t(y) * lumaPitch_, planes[0] + size_t(y) * lumaPitch_, srcW_*(desc_.wideYuvInput()?2:1));
+            std::memcpy(mappedLuma_[parity] + size_t(y) * lumaPitch_, planes[0] + size_t(y) * lumaPitch_, size_t(srcW_)*(desc_.wideYuvInput()?2:1));
         for (uint32_t y = 0; y < (srcH_+1) / 2; ++y)
-            std::memcpy(mappedChroma_[parity] + size_t(y) * chromaPitch_, planes[1] + size_t(y) * chromaPitch_, ((srcW_+1)/2)*(desc_.wideYuvInput()?4:2));}
+            std::memcpy(mappedChroma_[parity] + size_t(y) * chromaPitch_, planes[1] + size_t(y) * chromaPitch_, size_t((srcW_+1)/2)*(desc_.wideYuvInput()?4:2));}
         auto copyPlane = [&](ID3D12Resource* texture, ID3D12Resource* upload,
                              DXGI_FORMAT format, UINT width, UINT height, UINT pitch, UINT64 offset = 0) {
             tracker_.transition(list, texture, D3D12_RESOURCE_STATE_COPY_DEST);
