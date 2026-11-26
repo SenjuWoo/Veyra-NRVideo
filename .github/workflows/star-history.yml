@@ -16,7 +16,7 @@ jobs:
   star-history:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
 
       - name: Generate Star History
         uses: kitswas/generate-star-history@v1
